@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { pool } from './db';
+import { assertSchemaInSync } from './schema-lock';
+import { DEFAULT_MIGRATIONS_DIR } from './migration-files';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -237,6 +239,17 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+async function start(): Promise<void> {
+  try {
+    await assertSchemaInSync(pool, DEFAULT_MIGRATIONS_DIR);
+    console.log('[schema-lock] schema in sync');
+  } catch (err) {
+    console.error('[schema-lock] startup failed:\n' + (err as Error).message);
+    process.exit(1);
+  }
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+start();
