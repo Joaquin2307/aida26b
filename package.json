@@ -1,0 +1,12 @@
+{
+  "name": "faculty-management",
+  "version": "1.0.0",
+  "description": "Faculty Student Management System",
+
+  "scripts": {
+    "install": "cd frontend && npm install && cd ../backend && npm install",
+    "build": "cd backend && npm run build",
+    "start-backend": "cd backend && npm run start",
+    "start-frontend": "cd frontend && npm run dev"
+  }
+}

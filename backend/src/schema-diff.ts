@@ -197,7 +197,7 @@ async function cli(): Promise<void> {
     throw new Error(`Invalid migration name "${name}" — use lowercase_with_underscores.`);
   }
 
-  const { pool } = await import('./db');
+  const { pool } = await import('./db.js');
   try {
     // A draft diffed against a DB with pending migrations would conflict with
     // them once `migrate` replays everything in order — refuse, like Flyway/Atlas.

@@ -10,4 +10,8 @@ module.exports = {
     },
   },
   moduleFileExtensions: ['ts', 'js', 'json', 'node'],
+  moduleNameMapper: {
+    '^@shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '\\.css$': '<rootDir>/test/styleMock.cjs',
+  },
 };

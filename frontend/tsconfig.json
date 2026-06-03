@@ -1,17 +1,11 @@
 {
+  "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "NodeNext",
-    "lib": ["ES2020", "DOM"],
+    "module": "esnext",
     "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "NodeNext",
-    "resolveJsonModule": true,
+    "rootDir": "../",
+    "moduleResolution": "bundler",
   },
-  "include": ["src/**/*"],
+  "include": ["src", "../shared/src"],
   "exclude": ["node_modules", "dist"]
 }

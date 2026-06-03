@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc && cd ../frontend && npm run build",
     "build-backend": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/backend/src/server.js",
     "dev": "ts-node src/server.ts",
     "watch": "nodemon --exec ts-node src/server.ts",
     "migrate": "ts-node src/migrate.ts",
