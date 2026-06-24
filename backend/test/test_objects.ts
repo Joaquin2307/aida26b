@@ -1,53 +1,112 @@
-import { updateDBWithStudent, updateDBWithSubject } from "./test_helpers";
+import { upsertRow } from './test_helpers';
 
-/*Test objects*/
-const homeroSimpson = {numero_libreta: '1/23', dni: '123456789', first_name: 'Homero', last_name: 'Simpson', email: 'homeroSimpson@dc.uba.ar', enrollment_date: '2023-02-12T03:00:00.000Z', status: 'active'};
+/* Test objects for the comprobantes domain. Numeric columns come back from
+   Postgres as strings ('4500.00'); assert.deepEqual (loose) handles that. */
 
-const homeroModified = {numero_libreta: '1/23', dni: '987654321', first_name: 'Homero', last_name: 'Simpson', email: 'homeroSimpson@dc.uba.ar', enrollment_date: '2026-02-12T03:00:00.000Z', status: 'graduated'};
+const proveedor = {
+  cuit: '30-12345678-9',
+  razon_social: 'Insumos del Sur SA',
+  email: 'ventas@insumos.com',
+  telefono: '011-4555-1234',
+  direccion: 'Av Siempreviva 742',
+  condicion_iva: 'responsable_inscripto',
+};
 
-const ari = {cod_mat: 'ARI1C26', name: 'Almacenamiento y Recuperación de la Información', description: 'Bases de datos para los amigos', credits: 0, department: 'DC'};
+const proveedorModified = {
+  ...proveedor,
+  razon_social: 'Insumos del Sur SRL',
+  telefono: '011-4555-9999',
+  condicion_iva: 'monotributo',
+};
 
-const ariModified = {cod_mat: 'ARI1C26', name: "Almacenamiento y Recuperación de la Información", description: 'Ex bases de datos.', credits: 0, department: 'DC'};
+const articulo = {
+  codigo: 'ART-001',
+  descripcion: 'Resma de papel A4',
+  precio_unitario: 4500,
+};
 
-const enrollmentHomeroAri = {
-    numero_libreta: homeroSimpson.numero_libreta,
-    cod_mat: ari.cod_mat,
-    enrollment_date:  '2023-02-11T03:00:00.000Z',
-    grade: 0,
-    status: 'enrolled'
-}
+const articuloModified = {
+  ...articulo,
+  descripcion: 'Resma de papel A4 80g',
+  precio_unitario: 4800,
+};
 
-const enrollmentHomeroAriExpectedResponse = {
-    numero_libreta: '1/23',
-  cod_mat: 'ARI1C26',
-  student_name: 'Homero Simpson',
-  subject_name: 'Almacenamiento y Recuperación de la Información',
-  enrollment_date: '2023-02-11T03:00:00.000Z',
-  grade: '0.00',
-  status: 'enrolled'
-}
+const comprobante = {
+  numero: 'FA-0001-00000001',
+  tipo: 'factura_a',
+  cuit: proveedor.cuit,
+  fecha: '2026-05-10T03:00:00.000Z',
+  estado: 'pagado',
+};
 
-const enrollmentHomeroAriModified = {
-    numero_libreta: homeroSimpson.numero_libreta,
-    cod_mat: ari.cod_mat,
-    enrollment_date:  '2026-02-11T03:00:00.000Z',
-    grade: 10,
-    status: 'completed'
-}
+// total is derived (SUM over the detalle); with no line items it is 0.
+const comprobanteExpectedResponse = {
+  numero: 'FA-0001-00000001',
+  tipo: 'factura_a',
+  cuit: proveedor.cuit,
+  proveedor_nombre: proveedor.razon_social,
+  fecha: '2026-05-10T03:00:00.000Z',
+  total: 0,
+  estado: 'pagado',
+};
 
-const enrollmentHomeroAriModifiedExpectedResponse = {
-  numero_libreta: '1/23',
-  cod_mat: 'ARI1C26',
-  student_name: 'Homero Simpson',
-  subject_name: 'Almacenamiento y Recuperación de la Información',
-  enrollment_date: '2026-02-11T03:00:00.000Z',
-  grade: 10,
-  status: 'completed'
-}
+const comprobanteModified = {
+  ...comprobante,
+  tipo: 'factura_b',
+  estado: 'pendiente',
+};
 
-const DBWithStudentAndSubject = async () => {
-    await updateDBWithStudent(homeroSimpson.numero_libreta, homeroSimpson.dni, homeroSimpson.first_name, homeroSimpson.last_name, homeroSimpson.email, homeroSimpson.enrollment_date, homeroSimpson.status, false);
-    await updateDBWithSubject(ari.cod_mat, ari.name, ari.description, ari.credits, ari.department, false);
-}
+const comprobanteModifiedExpectedResponse = {
+  ...comprobanteExpectedResponse,
+  tipo: 'factura_b',
+  estado: 'pendiente',
+};
 
-export { homeroSimpson, homeroModified, enrollmentHomeroAri, enrollmentHomeroAriExpectedResponse, enrollmentHomeroAriModified, enrollmentHomeroAriModifiedExpectedResponse, ari, ariModified, DBWithStudentAndSubject };
+const detalle = {
+  numero: comprobante.numero,
+  codigo: articulo.codigo,
+  cantidad: 2,
+};
+
+const detalleExpectedResponse = {
+  numero: comprobante.numero,
+  codigo: articulo.codigo,
+  articulo_descripcion: articulo.descripcion,
+  precio_unitario: articulo.precio_unitario,
+  cantidad: 2,
+  subtotal: 9000,
+};
+
+const detalleModified = {
+  ...detalle,
+  cantidad: 4,
+};
+
+const detalleModifiedExpectedResponse = {
+  ...detalleExpectedResponse,
+  cantidad: 4,
+  subtotal: 18000,
+};
+
+// Ensures the FK parents for a comprobante line item exist.
+const seedProveedorArticuloComprobante = async () => {
+  await upsertRow('proveedores', proveedor, false);
+  await upsertRow('articulos', articulo, false);
+  await upsertRow('comprobantes', comprobante, false);
+};
+
+export {
+  proveedor,
+  proveedorModified,
+  articulo,
+  articuloModified,
+  comprobante,
+  comprobanteExpectedResponse,
+  comprobanteModified,
+  comprobanteModifiedExpectedResponse,
+  detalle,
+  detalleExpectedResponse,
+  detalleModified,
+  detalleModifiedExpectedResponse,
+  seedProveedorArticuloComprobante,
+};

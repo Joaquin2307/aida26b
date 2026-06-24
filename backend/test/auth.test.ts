@@ -10,7 +10,7 @@ class FakeDb {
     this.users = users;
     this.sessions = [];
     this.audit = [];
-    this.students = [];
+    this.proveedores = [];
     this.nextUserId = Math.max(...users.map((user) => user.id)) + 1;
   }
 
@@ -76,29 +76,28 @@ class FakeDb {
       user.must_change_password = sql.includes('must_change_password = true');
       return { rows: [publicRow(user)] };
     }
-    if (sql.startsWith('SELECT * FROM students ORDER BY')) {
-      return { rows: this.students };
+    if (sql.startsWith('SELECT * FROM proveedores ORDER BY')) {
+      return { rows: this.proveedores };
     }
 
-    // Handle queries that wrap the students query in a CTE/derived table or use COUNT
-    if (/FROM\s*\(\s*SELECT\s+\*\s+FROM\s+students/i.test(sql) || /FROM\s+students/i.test(sql)) {
+    // Handle queries that wrap the proveedores query in a CTE/derived table or use COUNT
+    if (/FROM\s*\(\s*SELECT\s+\*\s+FROM\s+proveedores/i.test(sql) || /FROM\s+proveedores/i.test(sql)) {
       if (/SELECT\s+COUNT\(/i.test(sql)) {
-        return { rows: [{ count: this.students.length }] };
+        return { rows: [{ count: this.proveedores.length }] };
       }
-      return { rows: this.students };
+      return { rows: this.proveedores };
     }
-    if (sql.startsWith('INSERT INTO students')) {
-      const student = {
-        numero_libreta: params[0],
-        dni: params[1],
-        first_name: params[2],
-        last_name: params[3],
-        email: params[4],
-        enrollment_date: params[5],
-        status: params[6],
+    if (sql.startsWith('INSERT INTO proveedores')) {
+      const proveedor = {
+        cuit: params[0],
+        razon_social: params[1],
+        email: params[2],
+        telefono: params[3],
+        direccion: params[4],
+        condicion_iva: params[5],
       };
-      this.students.push(student);
-      return { rows: [student] };
+      this.proveedores.push(proveedor);
+      return { rows: [proveedor] };
     }
 
     throw new Error(`Unhandled query: ${sql}`);
@@ -183,32 +182,32 @@ test('login, me and logout manage the session cookie', async () => {
   });
 });
 
-test('reader can read but cannot mutate academic data', async () => {
+test('reader can read but cannot mutate data', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
     const cookie = await login(baseUrl, 'reader', 'readerpass');
-    assert.equal((await request(baseUrl, '/api/students', { cookie })).status, 200);
-    const write = await request(baseUrl, '/api/students', {
+    assert.equal((await request(baseUrl, '/api/proveedores', { cookie })).status, 200);
+    const write = await request(baseUrl, '/api/proveedores', {
       method: 'POST',
       cookie,
-      body: { numero_libreta: '100', dni: '1', first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com', enrollment_date: '2026-01-01', status: 'active', password: 'studentpass' },
+      body: { cuit: '20-11111111-1', razon_social: 'Ada Lovelace SA', email: 'ada@example.com', telefono: '111', direccion: 'Calle 1', condicion_iva: 'monotributo' },
     });
     assert.equal(write.status, 403);
     assert.equal(db.audit.at(-1).event_type, 'permission_denied');
   });
 });
 
-test('editor can create a student account but cannot manage users', async () => {
+test('editor can create data but cannot manage users', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
     const cookie = await login(baseUrl, 'editor', 'editorpass');
-    const createStudent = await request(baseUrl, '/api/students', {
+    const createProveedor = await request(baseUrl, '/api/proveedores', {
       method: 'POST',
       cookie,
-      body: { numero_libreta: '101', dni: '2', first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com', enrollment_date: '2026-01-01', status: 'active', password: 'studentpass' },
+      body: { cuit: '27-22222222-2', razon_social: 'Grace Hopper SRL', email: 'grace@example.com', telefono: '222', direccion: 'Calle 2', condicion_iva: 'responsable_inscripto' },
     });
-    assert.equal(createStudent.status, 201);
-    assert.equal(db.users.find((user) => user.username === '101').role, 'reader');
+    assert.equal(createProveedor.status, 201);
+    assert.equal(db.proveedores.find((p) => p.cuit === '27-22222222-2').razon_social, 'Grace Hopper SRL');
 
     const createUser = await request(baseUrl, '/api/admin/users', { method: 'POST', cookie, body: { username: 'other', password: 'otherpass', role: 'reader' } });
     assert.equal(createUser.status, 403);
@@ -239,7 +238,7 @@ test('first login users must change password before using the app', async () => 
     await request(baseUrl, '/api/admin/users', { method: 'POST', cookie: adminCookie, body: { username: 'tempuser', password: 'temppass1', role: 'reader' } });
 
     const tempCookie = await login(baseUrl, 'tempuser', 'temppass1');
-    const blocked = await request(baseUrl, '/api/students', { cookie: tempCookie });
+    const blocked = await request(baseUrl, '/api/proveedores', { cookie: tempCookie });
     assert.equal(blocked.status, 403);
     assert.equal(blocked.body.error, 'Password change required');
 
@@ -250,6 +249,6 @@ test('first login users must change password before using the app', async () => 
     });
     assert.equal(changed.status, 200);
     assert.equal(changed.body.user.must_change_password, false);
-    assert.equal((await request(baseUrl, '/api/students', { cookie: tempCookie })).status, 200);
+    assert.equal((await request(baseUrl, '/api/proveedores', { cookie: tempCookie })).status, 200);
   });
 });

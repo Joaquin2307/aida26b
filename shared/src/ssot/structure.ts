@@ -15,51 +15,24 @@ function localizeText(text: LocalizedText): string {
 
 export const structure = {
   tables: {
-    students: {
+    proveedores: {
       columns: {
-        numero_libreta: {
+        cuit: {
           type: 'string',
-          label: { es: 'Número de Libreta', en: 'Student ID' },
+          label: { es: 'CUIT', en: 'Tax ID' },
           readonlyOnEdit: true,
           validator: {
             required: true,
-            pattern: '^\\d{1,4}/\\d{2}$',
-            patternMessage:
-              'must match pattern NNNN/YY (1-4 digit number, slash, 2-digit year; leading zeros optional on the number)',
-            normalize: {
-              pattern: '^0+(?=\\d)',
-              replacement: '',
-            },
+            pattern: '^\\d{2}-\\d{8}-\\d$',
+            patternMessage: 'must match pattern NN-NNNNNNNN-N',
           },
         },
 
-        dni: {
+        razon_social: {
           type: 'string',
-          label: { es: 'DNI', en: 'ID Number' },
+          label: { es: 'Razón Social', en: 'Business Name' },
           validator: {
             required: true,
-            pattern: '^\\d{7,8}$',
-            patternMessage: 'must be 7 or 8 digits',
-          },
-        },
-
-        first_name: {
-          type: 'string',
-          label: { es: 'Nombre', en: 'First Name' },
-          validator: {
-            required: true,
-            pattern: '^\\D+$',
-            patternMessage: 'must not contain numbers',
-          },
-        },
-
-        last_name: {
-          type: 'string',
-          label: { es: 'Apellido', en: 'Last Name' },
-          validator: {
-            required: true,
-            pattern: '^\\D+$',
-            patternMessage: 'must not contain numbers',
           },
         },
 
@@ -74,43 +47,55 @@ export const structure = {
           },
         },
 
-        enrollment_date: {
+        telefono: {
           type: 'string',
-          label: { es: 'Fecha de Inscripción', en: 'Enrollment Date' },
-          input: 'date',
+          label: { es: 'Teléfono', en: 'Phone' },
           validator: {
             nullable: true,
-            minDate: '1821-08-09',
-            maxDayOffset: 0,
           },
         },
 
-        status: {
+        direccion: {
           type: 'string',
-          label: { es: 'Estado', en: 'Status' },
+          label: { es: 'Dirección', en: 'Address' },
+          validator: {
+            nullable: true,
+          },
+        },
+
+        condicion_iva: {
+          type: 'string',
+          label: { es: 'Condición IVA', en: 'Tax Status' },
           input: 'select',
           validator: {
             nullable: true,
           },
           options: [
-            { value: 'active', label: { es: 'Activo', en: 'Active' } },
-            { value: 'graduated', label: { es: 'Graduado', en: 'Graduated' } },
             {
-              value: 'interrupted',
-              label: { es: 'Interrumpido', en: 'Interrupted' },
+              value: 'responsable_inscripto',
+              label: { es: 'Responsable Inscripto', en: 'Registered' },
+            },
+            {
+              value: 'monotributo',
+              label: { es: 'Monotributo', en: 'Monotax' },
+            },
+            { value: 'exento', label: { es: 'Exento', en: 'Exempt' } },
+            {
+              value: 'consumidor_final',
+              label: { es: 'Consumidor Final', en: 'Final Consumer' },
             },
           ],
         },
       },
-      pk: 'numero_libreta',
-      uiName: { es: 'Alumno', en: 'Student' },
-      title: { es: 'Alumnos', en: 'Students' },
-      addButtonLabel: { es: 'Agregar Alumno', en: 'Add Student' },
+      pk: 'cuit',
+      uiName: { es: 'Proveedor', en: 'Provider' },
+      title: { es: 'Proveedores', en: 'Providers' },
+      addButtonLabel: { es: 'Agregar Proveedor', en: 'Add Provider' },
     } satisfies TableStructure,
 
-    subjects: {
+    articulos: {
       columns: {
-        cod_mat: {
+        codigo: {
           type: 'string',
           label: { es: 'Código', en: 'Code' },
           readonlyOnEdit: true,
@@ -119,132 +104,106 @@ export const structure = {
           },
         },
 
-        name: {
+        descripcion: {
           type: 'string',
-          label: { es: 'Nombre', en: 'Name' },
+          label: { es: 'Descripción', en: 'Description' },
           validator: {
             required: true,
           },
         },
 
-        description: {
-          type: 'string',
-          label: { es: 'Descripción', en: 'Description' },
-          input: 'textarea',
-          validator: {
-            nullable: true,
-          },
-        },
-
-        credits: {
+        precio_unitario: {
           type: 'number',
-          label: { es: 'Créditos', en: 'Credits' },
+          label: { es: 'Precio Unitario', en: 'Unit Price' },
           input: 'number',
           validator: {
-            nullable: true,
-            integer: true,
-            minValue: 1,
-          },
-        },
-
-        department: {
-          type: 'string',
-          label: { es: 'Departamento', en: 'Department' },
-          validator: {
-            nullable: true,
+            required: true,
+            minValue: 0,
           },
         },
       },
-      pk: 'cod_mat',
-      uiName: { es: 'Materia', en: 'Subject' },
-      title: { es: 'Materias', en: 'Subjects' },
-      addButtonLabel: { es: 'Agregar Materia', en: 'Add Subject' },
+      pk: 'codigo',
+      uiName: { es: 'Artículo', en: 'Article' },
+      title: { es: 'Artículos', en: 'Articles' },
+      addButtonLabel: { es: 'Agregar Artículo', en: 'Add Article' },
     } satisfies TableStructure,
 
-    enrollments: {
-      pk: ['numero_libreta', 'cod_mat'],
-      uiName: { es: 'Inscripción', en: 'Enrollment' },
+    comprobantes: {
+      pk: 'numero',
+      uiName: { es: 'Comprobante', en: 'Voucher' },
       columns: {
-        numero_libreta: {
+        numero: {
           type: 'string',
-          label: { es: 'Número de Libreta', en: 'Student ID' },
-          readonlyOnEdit: true,
-          validator: {
-            required: true,
-            pattern: '^\\d{1,4}/\\d{2}$',
-            patternMessage:
-              'must match pattern NNNN/YY (1-4 digit number, slash, 2-digit year; leading zeros optional on the number)',
-            normalize: {
-              pattern: '^0+(?=\\d)',
-              replacement: '',
-            },
-          },
-          input: 'select',
-          foreignKey: {
-            table: 'students',
-            valueField: 'numero_libreta',
-            labelField: `first_name || ' ' || last_name`,
-          },
-        },
-
-        student_name: {
-          type: 'string',
-          label: { es: 'Nombre del Alumno', en: 'Student Name' },
-          editable: false,
-          derivable: {
-            originTable: 'students',
-            sqlGenerationStatement:
-              `entityName.first_name || ' ' || entityName.last_name`,
-          },
-        },
-
-        cod_mat: {
-          type: 'string',
-          label: { es: 'Código de Materia', en: 'Subject Code' },
+          label: { es: 'Número', en: 'Number' },
           readonlyOnEdit: true,
           validator: {
             required: true,
           },
+        },
+
+        tipo: {
+          type: 'string',
+          label: { es: 'Tipo', en: 'Type' },
+          input: 'select',
+          validator: {
+            required: true,
+          },
+          options: [
+            { value: 'factura_a', label: { es: 'Factura A', en: 'Invoice A' } },
+            { value: 'factura_b', label: { es: 'Factura B', en: 'Invoice B' } },
+            { value: 'factura_c', label: { es: 'Factura C', en: 'Invoice C' } },
+          ],
+        },
+
+        cuit: {
+          type: 'string',
+          label: { es: 'Proveedor', en: 'Provider' },
+          readonlyOnEdit: true,
           input: 'select',
           foreignKey: {
-            table: 'subjects',
-            valueField: 'cod_mat',
-            labelField: 'name',
+            table: 'proveedores',
+            valueField: 'cuit',
+            labelField: 'razon_social',
+          },
+          validator: {
+            required: true,
+            pattern: '^\\d{2}-\\d{8}-\\d$',
+            patternMessage: 'must match pattern NN-NNNNNNNN-N',
           },
         },
 
-        subject_name: {
+        proveedor_nombre: {
           type: 'string',
-          label: { es: 'Nombre de Materia', en: 'Subject Name' },
+          label: { es: 'Nombre del Proveedor', en: 'Provider Name' },
           editable: false,
           derivable: {
-            originTable: 'subjects',
-            sqlGenerationStatement: `entityName.name`,
+            originTable: 'proveedores',
+            sqlGenerationStatement: `entityName.razon_social`,
           },
         },
 
-        enrollment_date: {
+        fecha: {
           type: 'string',
-          label: { es: 'Fecha de Inscripción', en: 'Enrollment Date' },
+          label: { es: 'Fecha', en: 'Date' },
           input: 'date',
           validator: {
             required: true,
-            minDate: '1821-08-09',
+            minDate: '2000-01-01',
+            maxDayOffset: 0,
           },
         },
 
-        grade: {
+        total: {
           type: 'number',
-          label: { es: 'Nota', en: 'Grade' },
-          input: 'number',
-          validator: {
-            nullable: true,
-            minValue: 0,
-            maxValue: 10,
+          label: { es: 'Total', en: 'Total' },
+          editable: false,
+          derivable: {
+            originTable: 'comprobantes',
+            sqlGenerationStatement: `(SELECT COALESCE(SUM(dc.cantidad * art.precio_unitario), 0) FROM detalle_comprobante dc JOIN articulos art ON art.codigo = dc.codigo WHERE dc.numero = entityName.numero)`,
           },
         },
 
-        status: {
+        estado: {
           type: 'string',
           label: { es: 'Estado', en: 'Status' },
           input: 'select',
@@ -252,18 +211,96 @@ export const structure = {
             nullable: true,
           },
           options: [
-            { value: 'enrolled', label: { es: 'Inscrito', en: 'Enrolled' } },
-            {
-              value: 'completed',
-              label: { es: 'Completado', en: 'Completed' },
-            },
-            { value: 'failed', label: { es: 'Fallido', en: 'Failed' } },
+            { value: 'pendiente', label: { es: 'Pendiente', en: 'Pending' } },
+            { value: 'pagado', label: { es: 'Pagado', en: 'Paid' } },
+            { value: 'anulado', label: { es: 'Anulado', en: 'Voided' } },
           ],
         },
       },
-      title: { es: 'Inscripciones', en: 'Enrollments' },
-      addButtonLabel: { es: 'Agregar Inscripción', en: 'Add Enrollment' },
-      referencedTables: ['students', 'subjects'],
+      title: { es: 'Comprobantes', en: 'Vouchers' },
+      addButtonLabel: { es: 'Agregar Comprobante', en: 'Add Voucher' },
+      referencedTables: ['proveedores'],
+    } satisfies TableStructure,
+
+    detalle_comprobante: {
+      pk: ['numero', 'codigo'],
+      uiName: { es: 'Detalle', en: 'Item' },
+      columns: {
+        numero: {
+          type: 'string',
+          label: { es: 'Comprobante', en: 'Voucher' },
+          readonlyOnEdit: true,
+          input: 'select',
+          foreignKey: {
+            table: 'comprobantes',
+            valueField: 'numero',
+            labelField: 'numero',
+          },
+          validator: {
+            required: true,
+          },
+        },
+
+        codigo: {
+          type: 'string',
+          label: { es: 'Artículo', en: 'Article' },
+          readonlyOnEdit: true,
+          input: 'select',
+          foreignKey: {
+            table: 'articulos',
+            valueField: 'codigo',
+            labelField: 'descripcion',
+          },
+          validator: {
+            required: true,
+          },
+        },
+
+        articulo_descripcion: {
+          type: 'string',
+          label: { es: 'Descripción', en: 'Description' },
+          editable: false,
+          derivable: {
+            originTable: 'articulos',
+            sqlGenerationStatement: `entityName.descripcion`,
+          },
+        },
+
+        precio_unitario: {
+          type: 'number',
+          label: { es: 'Precio Unitario', en: 'Unit Price' },
+          editable: false,
+          derivable: {
+            originTable: 'articulos',
+            sqlGenerationStatement: `entityName.precio_unitario`,
+          },
+        },
+
+        cantidad: {
+          type: 'number',
+          label: { es: 'Cantidad', en: 'Quantity' },
+          input: 'number',
+          validator: {
+            required: true,
+            integer: true,
+            minValue: 1,
+          },
+        },
+
+        subtotal: {
+          type: 'number',
+          label: { es: 'Subtotal', en: 'Subtotal' },
+          editable: false,
+          derivable: {
+            originTable: 'articulos',
+            sqlGenerationStatement: `entityName.precio_unitario * Item.cantidad`,
+          },
+        },
+      },
+      title: { es: 'Detalle de Comprobantes', en: 'Voucher Items' },
+      addButtonLabel: { es: 'Agregar Ítem', en: 'Add Item' },
+      referencedTables: ['comprobantes', 'articulos'],
+      detailOf: 'comprobantes',
     } satisfies TableStructure,
   },
 
@@ -322,12 +359,15 @@ export const structure = {
     actions: { es: 'Acciones', en: 'Actions' },
     add: { es: 'Agregar', en: 'Add' },
     appTitle: {
-      es: 'Sistema de Gestión Académica',
-      en: 'Academic Management System',
+      es: 'Sistema de Carga de Comprobantes',
+      en: 'Voucher Management System',
     },
     cancel: { es: 'Cancelar', en: 'Cancel' },
     delete: { es: 'Eliminar', en: 'Delete' },
     edit: { es: 'Editar', en: 'Edit' },
+    detail: { es: 'Detalle', en: 'Details' },
+    backToList: { es: '← Volver', en: '← Back' },
+    detailTitle: { es: 'Detalle del comprobante', en: 'Voucher details' },
     update: { es: 'Actualizar', en: 'Update' },
     login: { es: 'Ingresar', en: 'Login' },
     password: { es: 'Contraseña', en: 'Password' },
@@ -353,6 +393,18 @@ export const structure = {
     // Data / record messages
     errorLoadingData: { es: 'Error cargando datos', en: 'Error loading data' },
     errorSaving: { es: 'Error guardando', en: 'Error saving' },
+    atLeastOneItem: {
+      es: 'Agregá al menos un artículo',
+      en: 'Add at least one article',
+    },
+    invalidQuantity: {
+      es: 'Revisá la cantidad de los artículos (debe ser un número ≥ 1)',
+      en: 'Check article quantities (must be a number ≥ 1)',
+    },
+    itemSaveFailed: {
+      es: 'No se pudo crear el comprobante: falló el artículo',
+      en: 'Could not create the voucher: failed on article',
+    },
     errorDeleting: { es: 'Error eliminando', en: 'Error deleting' },
     errorLoadingRecord: { es: 'Error cargando registro', en: 'Error loading record' },
 

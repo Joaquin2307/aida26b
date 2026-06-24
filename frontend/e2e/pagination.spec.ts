@@ -15,27 +15,28 @@ async function httpJson<T>(method: string, url: string, body?: unknown): Promise
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
-async function seedStudents(apiBase: string, count: number, prefix: string): Promise<string[]> {
+async function seedArticulos(apiBase: string, count: number, prefix: string): Promise<string[]> {
   const created: string[] = [];
   for (let i = 0; i < count; i++) {
-    const studentId = `${prefix}_${String(i).padStart(2, '0')}`;    const payload = {
-      numero_libreta: studentId,
-      dni: String(90000000 + i),
-      first_name: 'E2E',
-      last_name: `Pagination ${String(i).padStart(4, '0')}`,
-      email: `${studentId}@example.test`,
-      enrollment_date: '2024-01-01',
-      status: 'active',
+    const codigo = `${prefix}_${String(i).padStart(2, '0')}`;
+    const payload = {
+      codigo,
+      descripcion: `E2E Pagination ${String(i).padStart(4, '0')}`,
+      precio_unitario: 1000 + i,
+      unidad: 'unidad',
+      stock: i,
     };
-    await httpJson('POST', `${apiBase}/students`, payload);
-    created.push(studentId);
+    await httpJson('POST', `${apiBase}/articulos`, payload);
+    created.push(codigo);
   }
   return created;
 }
 
-async function cleanupStudents(apiBase: string, studentIds: string[]) {
+async function cleanupArticulos(apiBase: string, codigos: string[]) {
   await Promise.allSettled(
-    studentIds.map((id) => httpJson('DELETE', `${apiBase}/students/${encodeURIComponent(id)}`).catch(() => undefined)),
+    codigos.map((codigo) =>
+      httpJson('DELETE', `${apiBase}/articulos?codigo=${encodeURIComponent(codigo)}`).catch(() => undefined),
+    ),
   );
 }
 
@@ -54,7 +55,7 @@ async function ensurePkFilter(page: Page) {
     for (let i = 0; i < n; i++) {
       const sel = selects.nth(i);
       if (!(await sel.isVisible())) continue;
-      const hasPk = await sel.locator('option[value="numero_libreta"]').count();
+      const hasPk = await sel.locator('option[value="codigo"]').count();
       if (hasPk) {
         addDropdownIndex = i;
         break;
@@ -62,7 +63,7 @@ async function ensurePkFilter(page: Page) {
     }
     expect(addDropdownIndex, 'add-filter dropdown not found').toBeGreaterThanOrEqual(0);
 
-    await selects.nth(addDropdownIndex).selectOption('numero_libreta');
+    await selects.nth(addDropdownIndex).selectOption('codigo');
     await expect(filterContainer.locator('.filter-row')).toHaveCount(1);
   }
 
@@ -72,7 +73,7 @@ async function ensurePkFilter(page: Page) {
   return valueInput;
 }
 
-async function expectStudentRows(page: Page, expectedIds: string[]) {
+async function expectArticuloRows(page: Page, expectedIds: string[]) {
   const rows = page.locator('#records-table tbody tr');
 
   await expect(rows).toHaveCount(expectedIds.length);
@@ -100,9 +101,9 @@ async function assertPagination(page: Page, expectedTotal: number, expectedPage:
   else await expect(nextBtn).toBeDisabled();
 }
 
-async function navigateToStudentsTab(page: Page) {
-  await page.goto(`/?table=students&page=1`);
-  await page.getByRole('button', { name: /Students/i }).click();
+async function navigateToArticulosTab(page: Page) {
+  await page.goto(`/?table=articulos&page=1`);
+  await page.getByRole('button', { name: /Art[íi]culos|Articles/i }).click();
 }
 
 test.describe('Pagination', () => {
@@ -110,12 +111,12 @@ test.describe('Pagination', () => {
 
   test.afterAll(async ({ baseURL }) => {
     if (!baseURL) return;
-    await cleanupStudents(`${baseURL}/api`, createdIds);
+    await cleanupArticulos(`${baseURL}/api`, createdIds);
   });
 
   test.afterEach(async ({ baseURL }) => {
     if (!baseURL) return;
-    await cleanupStudents(`${baseURL}/api`, createdIds);
+    await cleanupArticulos(`${baseURL}/api`, createdIds);
     createdIds = [];
   });
 
@@ -124,7 +125,7 @@ test.describe('Pagination', () => {
     const shortTimestamp = Date.now().toString().slice(-5);
     const prefix = `e2e_${shortTimestamp}_${testInfo.parallelIndex}`;
 
-    await navigateToStudentsTab(page);
+    await navigateToArticulosTab(page);
 
     // Ensure filter row and scope results to our prefix.
     await ensureFilterRowTriggers(page, prefix); // triggers change handler
@@ -140,7 +141,7 @@ test.describe('Pagination', () => {
   async function setupRecords(page: Page, baseURL: string | undefined, count: number) {
     if (!baseURL) throw new Error('Missing baseURL');
     const prefix = await getPrefix(page);
-    const ids = await seedStudents(`${baseURL}/api`, count, prefix);
+    const ids = await seedArticulos(`${baseURL}/api`, count, prefix);
     createdIds.push(...ids);
     await page.reload();
   }
@@ -183,7 +184,7 @@ test.describe('Pagination', () => {
     await assertPagination(page, total, 5, 5);
   });
 
-  test('filters correctly by numero_libreta matches', async ({ page, baseURL }) => {
+  test('filters correctly by codigo matches', async ({ page, baseURL }) => {
     if (!baseURL) throw new Error('Missing baseURL');
     const prefix = await getPrefix(page);
     const target = `${prefix}_MATCH`;
@@ -192,15 +193,13 @@ test.describe('Pagination', () => {
     const prefixId = `${target}_S`;
     const postfixId = `P_${target}`;
 
-    for (const [idx, numero_libreta] of [exactId, prefixId, postfixId].entries()) {
-      await httpJson('POST', `${baseURL}/api/students`, {
-        numero_libreta,
-        dni: String(91000001 + idx),
-        first_name: 'E2E',
-        last_name: 'Filter Contains',
-        email: `${numero_libreta}@example.test`,
-        enrollment_date: '2024-01-01',
-        status: 'active',
+    for (const [idx, codigo] of [exactId, prefixId, postfixId].entries()) {
+      await httpJson('POST', `${baseURL}/api/articulos`, {
+        codigo,
+        descripcion: 'E2E Filter Contains',
+        precio_unitario: 1000 + idx,
+        unidad: 'unidad',
+        stock: idx,
       });
     }
     createdIds.push(exactId, prefixId, postfixId);
@@ -210,27 +209,25 @@ test.describe('Pagination', () => {
     await pk.press('Enter');
 
     await page.reload();
-    await expectStudentRows(page, [exactId, prefixId, postfixId]);
+    await expectArticuloRows(page, [exactId, prefixId, postfixId]);
   });
 });
 
-test('rejects numero_libreta longer than 20 chars', async ({ baseURL }) => {
+test('rejects a provider with an invalid CUIT', async ({ baseURL }) => {
   if (!baseURL) throw new Error('Missing baseURL');
-  const tooLongId = '123456789012345678901'; // 21 chars
 
-  const res = await fetch(`${baseURL}/api/students`, {
+  const res = await fetch(`${baseURL}/api/proveedores`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      numero_libreta: tooLongId,
-      dni: '99999999',
-      first_name: 'Too',
-      last_name: 'Long',
-      email: 'toolong@example.test',
-      enrollment_date: '2024-01-01',
-      status: 'active',
+      cuit: 'not-a-cuit',
+      razon_social: 'Invalid CUIT SA',
+      email: 'invalid@example.test',
+      telefono: '111',
+      direccion: 'Calle 1',
+      condicion_iva: 'monotributo',
     }),
   });
 
@@ -238,7 +235,7 @@ test('rejects numero_libreta longer than 20 chars', async ({ baseURL }) => {
   expect(res.status).toBe(400);
 
   const body = await res.json();
-  expect(body.error).toMatch(/numero_libreta/i);
+  expect(body.error).toMatch(/cuit/i);
 });
 
 async function ensureFilterRowTriggers(page: Page, prefix: string) {

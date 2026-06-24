@@ -78,9 +78,6 @@ const statusMessage = document.getElementById('status-message') as HTMLElement;
 
 const viewTitle = document.getElementById('view-title') as HTMLElement;
 const addRecordBtn = document.getElementById('add-record-btn') as HTMLButtonElement;
-const adminActions = document.getElementById('admin-actions') as HTMLElement;
-const addTeacherBtn = document.getElementById('add-teacher-btn') as HTMLButtonElement;
-const addAdminBtn = document.getElementById('add-admin-btn') as HTMLButtonElement;
 
 const formContainer = document.getElementById('record-form') as HTMLElement;
 const sharedTable = document.getElementById('records-table') as HTMLTableElement;
@@ -88,7 +85,36 @@ const navContainer = document.getElementById('table-nav') as HTMLElement;
 const menuContainer = document.getElementById('menu-nav') as HTMLElement;
 
 const tableKeys = Object.keys(structure.tables) as TableKey[];
+// Tables shown as top-level navigation tabs (detail/line-item tables are
+// reached through a per-row drill-down, not their own tab).
+const navTableKeys = tableKeys.filter(
+  (key) => !(structure.tables[key] as TableStructure).detailOf
+);
 const menuKeys = Object.keys(structure.menu) as Array<keyof typeof structure.menu>;
+
+// Returns the detail (line-item) tables that drill down from a given parent
+// table, together with the child column that links back to the parent.
+function childDetailTablesOf(parentKey: TableKey): { childKey: TableKey; linkField: string }[] {
+  return tableKeys
+    .filter((key) => (structure.tables[key] as TableStructure).detailOf === parentKey)
+    .map((childKey) => {
+      const columns = (structure.tables[childKey] as TableStructure).columns;
+      const linkField =
+        Object.keys(columns).find(
+          (field) => columns[field].foreignKey?.table === parentKey
+        ) ?? (parentKey as string);
+      return { childKey, linkField };
+    });
+}
+
+type DetailContext = {
+  parentKey: TableKey;
+  childKey: TableKey;
+  linkField: string;
+  linkValue: string;
+};
+
+let detailContext: DetailContext | null = null;
 const tableNavButtons = {} as Record<TableKey, HTMLButtonElement>;
 
 // -----------------------------------------------------------------------------
@@ -243,6 +269,27 @@ function showErrorMessage(message: string): void {
 
 function appendChildren(element: HTMLElement, children: HTMLElement[]): void {
   children.forEach((child) => element.appendChild(child));
+}
+
+// Replace raw field names in a (possibly multi-error) message with their
+// user-facing labels, e.g. "cuit is required" -> "Proveedor is required".
+function localizeFieldNames(message: string, tableKey: TableKey): string {
+  const columns = structure.tables[tableKey].columns as Record<string, ColumnDef>;
+  // Longest field names first so prefixes don't shadow more specific ones.
+  const fields = Object.keys(columns).sort((a, b) => b.length - a.length);
+
+  return message
+    .split('; ')
+    .map((part) => {
+      for (const field of fields) {
+        if (part === field || part.startsWith(`${field} `)) {
+          const label = getLocalizedText(columns[field].label as LocalizedText | string) || field;
+          return `${label}${part.slice(field.length)}`;
+        }
+      }
+      return part;
+    })
+    .join('; ');
 }
 
 async function errorMessage(response: globalThis.Response): Promise<string> {
@@ -516,12 +563,10 @@ function applyStaticLanguageToUI(): void {
   setLocalizedElementText('new-password-label', structure.commonText.newPassword);
   setLocalizedElementText('password-submit-btn', structure.commonText.update);
   setLocalizedElementText('logout-btn', structure.commonText.logout);
-  setLocalizedElementText('add-teacher-btn', structure.commonText.addProfessor);
-  setLocalizedElementText('add-admin-btn', structure.commonText.addAdmin);
 }
 
 function updateNavButtonsText(): void {
-  tableKeys.forEach((key) => {
+  navTableKeys.forEach((key) => {
     const config = structure.tables[key];
     const button = tableNavButtons[key];
 
@@ -535,7 +580,7 @@ function updateNavButtonsText(): void {
 function createTableNavButtons(): void {
   navContainer.innerHTML = '';
 
-  for (const key of tableKeys) {
+  for (const key of navTableKeys) {
     const config = structure.tables[key];
     const button = document.createElement('button');
 
@@ -570,6 +615,11 @@ function resetStateForTable(tableKey: TableKey): void {
 }
 
 function showSection(section: TableKey, pushState = true): void {
+  // Leaving any detail drill-down: restore the normal filter UI.
+  detailContext = null;
+  detailBar.style.display = 'none';
+  filterContainer.style.display = 'flex';
+
   if (activeTableKey !== section && pushState) {
     resetStateForTable(section);
   }
@@ -595,10 +645,6 @@ function showSection(section: TableKey, pushState = true): void {
 
   addRecordBtn.style.display = canWriteAcademic() ? 'inline-block' : 'none';
 
-  if (adminActions) {
-    adminActions.hidden = currentUser?.role !== 'admin' || section !== 'students';
-  }
-
   hideAnyForm();
   renderFilters(section);
   loadTableData(section);
@@ -611,6 +657,55 @@ window.addEventListener('popstate', () => {
     showSection(activeTableKey, false);
   }
 });
+
+// Drill into the line items (detail) of a single parent row.
+function enterDetailView(
+  parentKey: TableKey,
+  childKey: TableKey,
+  linkField: string,
+  linkValue: string
+): void {
+  detailContext = { parentKey, childKey, linkField, linkValue };
+  activeTableKey = childKey;
+  setMessage();
+  hideAnyForm();
+
+  // Lock the list to this parent's rows.
+  currentState = {
+    page: 1,
+    filters: { [linkField]: [{ negated: false, value: linkValue }] },
+  };
+
+  // Keep the parent tab highlighted while we are inside its detail.
+  Object.entries(tableNavButtons).forEach(([key, button]) => {
+    button.classList.toggle('active', key === parentKey);
+  });
+
+  const childConfig = structure.tables[childKey];
+  viewTitle.textContent = `${getLocalizedText(structure.commonText.detailTitle)} ${linkValue}`;
+
+  addRecordBtn.textContent =
+    getLocalizedText(childConfig.addButtonLabel) ||
+    `${getLocalizedText(structure.commonText.add)} ${getLocalizedText(childConfig.uiName)}`;
+  addRecordBtn.style.display = canWriteAcademic() ? 'inline-block' : 'none';
+
+  // Swap the filter UI for a "back" bar.
+  filterContainer.style.display = 'none';
+  detailBar.innerHTML = '';
+  detailBar.style.display = 'flex';
+
+  const backBtn = document.createElement('button');
+  backBtn.className = 'back-btn';
+  backBtn.textContent = getLocalizedText(structure.commonText.backToList);
+  backBtn.addEventListener('click', () => showSection(parentKey));
+  detailBar.appendChild(backBtn);
+
+  const label = document.createElement('strong');
+  label.textContent = `${getLocalizedText(structure.tables[parentKey].uiName)}: ${linkValue}`;
+  detailBar.appendChild(label);
+
+  loadTableData(childKey);
+}
 
 // -----------------------------------------------------------------------------
 // Menu
@@ -692,6 +787,15 @@ window.addEventListener('languagechange', (event) => {
 // Table rendering
 // -----------------------------------------------------------------------------
 
+// Detail (drill-down) bar: shown instead of filters when viewing one parent's line items.
+const detailBar = document.createElement('div');
+detailBar.className = 'detail-bar';
+detailBar.style.display = 'none';
+detailBar.style.marginBottom = '15px';
+detailBar.style.alignItems = 'center';
+detailBar.style.gap = '10px';
+sharedTable.parentNode?.insertBefore(detailBar, sharedTable);
+
 const filterContainer = document.createElement('div');
 filterContainer.className = 'filter-container';
 filterContainer.style.display = 'flex';
@@ -717,12 +821,22 @@ function renderAnyTable<K extends TableKey>(
   const tableStructure = structure.tables[tableKey];
   const showActions = canWriteAcademic();
 
+  // Detail drill-down: which child tables hang off this one, and (when we are
+  // already inside a detail view) which column links back to the parent.
+  const childTables = childDetailTablesOf(tableKey);
+  const hasDetail = childTables.length > 0;
+  const hiddenField =
+    detailContext && detailContext.childKey === tableKey ? detailContext.linkField : null;
+  const showActionsCol = showActions || hasDetail;
+
   thead.innerHTML = '';
   tbody.innerHTML = '';
 
   const headerRow = document.createElement('tr');
 
   Object.entries(tableStructure.columns).forEach(([fieldName, column]) => {
+    if (fieldName === hiddenField) return;
+
     const th = document.createElement('th');
 
     th.textContent = getLocalizedText(column.label as LocalizedText | string) || fieldName;
@@ -749,7 +863,7 @@ function renderAnyTable<K extends TableKey>(
     headerRow.appendChild(th);
   });
 
-  if (showActions) {
+  if (showActionsCol) {
     const actionsHeader = document.createElement('th');
     actionsHeader.textContent = getLocalizedText(structure.commonText.actions);
     headerRow.appendChild(actionsHeader);
@@ -768,18 +882,36 @@ function renderAnyTable<K extends TableKey>(
     >;
 
     columnNames.forEach((name) => {
+      if (name === hiddenField) return;
       const td = document.createElement('td');
       td.textContent = String(record[name] ?? '');
       row.appendChild(td);
     });
 
-    if (showActions) {
+    if (showActionsCol) {
       const actionsTd = document.createElement('td');
       actionsTd.className = 'actions';
 
       const pkValues = pkFields.map((field) =>
         String(record[field as keyof TableRecordMap[K]] ?? '')
       );
+
+      childTables.forEach(({ childKey, linkField }) => {
+        const detailBtn = document.createElement('button');
+        detailBtn.className = 'detail-btn';
+        detailBtn.textContent = getLocalizedText(structure.commonText.detail);
+        const linkValue = String(record[linkField as keyof TableRecordMap[K]] ?? '');
+        detailBtn.addEventListener('click', () => {
+          enterDetailView(tableKey, childKey, linkField, linkValue);
+        });
+        actionsTd.appendChild(detailBtn);
+      });
+
+      if (!showActions) {
+        row.appendChild(actionsTd);
+        tbody.appendChild(row);
+        return;
+      }
 
       const editBtn = document.createElement('button');
       editBtn.className = 'edit-btn';
@@ -1147,24 +1279,6 @@ function renderFilters<K extends TableKey>(tableKey: K): void {
         loadTableData(tableKey);
       };
 
-      const negBtn = document.createElement('button');
-      negBtn.textContent = 'NOT';
-      negBtn.className = 'negate-btn';
-      negBtn.title = 'Toggle negation';
-
-      if (entry.negated) {
-        negBtn.classList.add('active');
-      }
-
-      negBtn.addEventListener('click', () => {
-        entry.negated = !entry.negated;
-        currentState.page = 1;
-
-        syncStateToUrl();
-        renderFilters(tableKey);
-        loadTableData(tableKey);
-      });
-
       const removeBtn = document.createElement('button');
       removeBtn.textContent = '✕';
       removeBtn.className = 'remove-filter-btn';
@@ -1185,7 +1299,6 @@ function renderFilters<K extends TableKey>(tableKey: K): void {
 
       row.appendChild(columnDropdown);
       row.appendChild(createFilterControl(entry, column, onChange));
-      row.appendChild(negBtn);
       row.appendChild(removeBtn);
       filterContainer.appendChild(row);
     });
@@ -1196,7 +1309,15 @@ function renderFilters<K extends TableKey>(tableKey: K): void {
 // Form logic
 // -----------------------------------------------------------------------------
 
-addRecordBtn.addEventListener('click', () => showAnyForm(activeTableKey));
+addRecordBtn.addEventListener('click', () => {
+  if (detailContext && detailContext.childKey === activeTableKey) {
+    showAnyForm(activeTableKey, undefined, {
+      lockedDefaults: { [detailContext.linkField]: detailContext.linkValue },
+    });
+  } else {
+    showAnyForm(activeTableKey);
+  }
+});
 
 function getFieldElementId(tableKey: TableKey, fieldName: string): string {
   return `${tableKey}-${fieldName}`;
@@ -1223,11 +1344,19 @@ function showFieldValidation(
     | null;
 
   const errorEl = document.getElementById(`${id}-error`);
-  const message = validateField(
+  const rawMessage = validateField(
     tableKey,
     fieldName,
     coerceFieldValue(column, element?.value ?? '')
   );
+
+  // Validation messages are prefixed with the raw field name (e.g. "cuit is
+  // required"); show the user-facing label instead ("Proveedor is required").
+  const label = getLocalizedText(column.label as LocalizedText | string) || fieldName;
+  const message =
+    rawMessage && rawMessage.startsWith(fieldName)
+      ? `${label}${rawMessage.slice(fieldName.length)}`
+      : rawMessage;
 
   if (errorEl) {
     errorEl.textContent = message ?? '';
@@ -1592,9 +1721,186 @@ function showUserForm(role: Exclude<Role, 'reader'>): void {
   formContainer.style.display = 'block';
 }
 
+type ItemsSection = {
+  container: HTMLElement;
+  collect: () => { fkValue: string; qty: number }[];
+  validate: () => boolean;
+  childKey: TableKey;
+  linkField: string;
+  fkField: string;
+  qtyField: string;
+};
+
+// Builds an inline, repeatable "line items" editor (article + quantity rows)
+// for a parent create form, driven by the child's detailOf relationship.
+async function buildItemsSection<K extends TableKey>(
+  parentKey: K,
+  childKey: TableKey,
+  linkField: string
+): Promise<ItemsSection> {
+  const childCols = structure.tables[childKey].columns as Record<string, ColumnDef>;
+  const fkField = Object.keys(childCols).find(
+    (field) => field !== linkField && childCols[field].foreignKey
+  )!;
+  const qtyField = Object.keys(childCols).find(
+    (field) =>
+      field !== linkField &&
+      field !== fkField &&
+      childCols[field].editable !== false &&
+      !childCols[field].derivable
+  )!;
+  const fk = childCols[fkField].foreignKey!;
+
+  const articleRows = (await fetchRows(`/${fk.table}?page=1`)) as Record<string, unknown>[];
+  const priceByValue = new Map<string, number>();
+  const options = articleRows.map((row) => {
+    const value = String(row[fk.valueField] ?? '');
+    priceByValue.set(value, Number(row['precio_unitario'] ?? 0));
+    return { value, label: `${value} - ${getForeignKeyLabel(row, fk)}` };
+  });
+
+  const container = document.createElement('div');
+  container.className = 'items-section';
+  container.style.marginTop = '10px';
+
+  const heading = document.createElement('h4');
+  heading.textContent =
+    getLocalizedText(structure.tables[childKey].title as LocalizedText) ||
+    getLocalizedText(structure.tables[childKey].uiName);
+  container.appendChild(heading);
+
+  const rowsWrap = document.createElement('div');
+  rowsWrap.className = 'items-rows';
+  container.appendChild(rowsWrap);
+
+  // Live total preview (the comprobante total is derived from these items).
+  const totalDisplay = document.createElement('p');
+  totalDisplay.className = 'items-total';
+  totalDisplay.style.fontWeight = 'bold';
+  totalDisplay.style.marginTop = '8px';
+
+  const recomputeTotal = (): void => {
+    let sum = 0;
+    rowsWrap.querySelectorAll('.item-row').forEach((rowEl) => {
+      const sel = rowEl.querySelector('select') as HTMLSelectElement;
+      const qty = rowEl.querySelector('input') as HTMLInputElement;
+      sum += (priceByValue.get(sel.value) ?? 0) * (Number(qty.value) || 0);
+    });
+    totalDisplay.textContent = `${getLocalizedText(structure.commonText.total)}: ${sum.toFixed(2)}`;
+  };
+
+  const addRow = (): void => {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'item-row';
+    rowEl.style.display = 'flex';
+    rowEl.style.gap = '8px';
+    rowEl.style.marginBottom = '6px';
+    rowEl.style.alignItems = 'center';
+
+    const sel = document.createElement('select');
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = '--';
+    sel.appendChild(blank);
+    options.forEach((option) => {
+      const opt = document.createElement('option');
+      opt.value = option.value;
+      opt.textContent = option.label;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', recomputeTotal);
+
+    const qty = document.createElement('input');
+    qty.type = 'number';
+    qty.value = '1';
+    qty.style.width = '90px';
+    qty.title = getLocalizedText(childCols[qtyField].label as LocalizedText);
+    qty.addEventListener('input', recomputeTotal);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'delete-btn';
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', () => {
+      rowEl.remove();
+      recomputeTotal();
+    });
+
+    rowEl.append(sel, qty, removeBtn);
+    rowsWrap.appendChild(rowEl);
+  };
+
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'add-btn';
+  addBtn.textContent =
+    getLocalizedText(structure.tables[childKey].addButtonLabel as LocalizedText) ||
+    getLocalizedText(structure.commonText.add);
+  addBtn.addEventListener('click', addRow);
+  container.appendChild(addBtn);
+  container.appendChild(totalDisplay);
+
+  const errorEl = document.createElement('small');
+  errorEl.className = 'field-error';
+  container.appendChild(errorEl);
+
+  addRow();
+  recomputeTotal();
+
+  const collect = (): { fkValue: string; qty: number }[] => {
+    const merged = new Map<string, number>();
+    rowsWrap.querySelectorAll('.item-row').forEach((rowEl) => {
+      const sel = rowEl.querySelector('select') as HTMLSelectElement;
+      const qty = rowEl.querySelector('input') as HTMLInputElement;
+      const fkValue = sel.value;
+      const quantity = Number(qty.value) || 0;
+      if (fkValue && quantity > 0) {
+        merged.set(fkValue, (merged.get(fkValue) ?? 0) + quantity);
+      }
+    });
+    return Array.from(merged, ([fkValue, qty]) => ({ fkValue, qty }));
+  };
+
+  // At least one article, and every chosen article needs a valid quantity (>= 1).
+  const validate = (): boolean => {
+    errorEl.textContent = '';
+    let hasArticle = false;
+    let badQty = false;
+
+    rowsWrap.querySelectorAll('.item-row').forEach((rowEl) => {
+      const sel = rowEl.querySelector('select') as HTMLSelectElement;
+      const qty = rowEl.querySelector('input') as HTMLInputElement;
+
+      if (!sel.value) {
+        qty.classList.remove('invalid');
+        return;
+      }
+
+      hasArticle = true;
+      const n = Number(qty.value);
+      const ok = Number.isInteger(n) && n >= 1;
+      qty.classList.toggle('invalid', !ok);
+      if (!ok) badQty = true;
+    });
+
+    if (!hasArticle) {
+      errorEl.textContent = getLocalizedText(structure.commonText.atLeastOneItem);
+      return false;
+    }
+    if (badQty) {
+      errorEl.textContent = getLocalizedText(structure.commonText.invalidQuantity);
+      return false;
+    }
+    return true;
+  };
+
+  return { container, collect, validate, childKey, linkField, fkField, qtyField };
+}
+
 async function showAnyForm<K extends TableKey>(
   tableKey: K,
-  record?: Partial<TableRecordMap[K]>
+  record?: Partial<TableRecordMap[K]>,
+  options?: { lockedDefaults?: Record<string, string> }
 ): Promise<void> {
   if (!canWriteAcademic()) {
     setMessage(getLocalizedText(structure.commonText.noEditPermission));
@@ -1604,8 +1910,11 @@ async function showAnyForm<K extends TableKey>(
   const tableConfig = structure.tables[tableKey];
   const isEdit = !!record;
   const formId = `${tableKey}-form`;
+  const lockedDefaults = options?.lockedDefaults ?? {};
+  // Pre-filled values for an add form (e.g. the parent key inside a detail view).
+  const prefill = { ...lockedDefaults, ...(record ?? {}) } as Partial<TableRecordMap[K]>;
 
-  await resolveDependingForeignKeys(tableKey, record);
+  await resolveDependingForeignKeys(tableKey, prefill);
 
   const fields = await Promise.all(
     Object.entries(tableConfig.columns)
@@ -1615,7 +1924,7 @@ async function showAnyForm<K extends TableKey>(
           tableKey,
           fieldName as keyof TableRecordMap[K] & string,
           column,
-          record,
+          prefill,
           isEdit
         )
       )
@@ -1636,13 +1945,9 @@ async function showAnyForm<K extends TableKey>(
 
   fields.forEach((field) => form.appendChild(field));
 
-  if (tableKey === 'students' && !isEdit) {
-    appendPasswordField(
-      form,
-      'students-password',
-      getLocalizedText(structure.commonText.initialPassword)
-    );
-  }
+  // Inline line-items editor for create forms; built after the form is in the
+  // DOM (it reads the total field element) — see below.
+  let itemsSection: ItemsSection | null = null;
 
   const actionsDiv = document.createElement('div');
   actionsDiv.className = 'form-actions';
@@ -1666,18 +1971,49 @@ async function showAnyForm<K extends TableKey>(
   formContainer.appendChild(form);
   formContainer.style.display = 'flex';
 
-  setupDependentSelects(tableKey, record);
+  setupDependentSelects(tableKey, prefill);
+
+  // Lock pre-filled fields (e.g. the comprobante a line item belongs to).
+  for (const [fieldName, value] of Object.entries(lockedDefaults)) {
+    const lockedEl = document.getElementById(getFieldElementId(tableKey, fieldName)) as
+      | HTMLInputElement
+      | HTMLSelectElement
+      | null;
+    if (lockedEl) {
+      lockedEl.value = value;
+      lockedEl.disabled = true;
+    }
+  }
+
+  // On a create form, let the user pick the parent's line items inline
+  // (e.g. choose articles + quantities while generating a comprobante).
+  if (!isEdit) {
+    const childDetails = childDetailTablesOf(tableKey);
+    if (childDetails.length > 0) {
+      itemsSection = await buildItemsSection(
+        tableKey,
+        childDetails[0].childKey,
+        childDetails[0].linkField
+      );
+      form.insertBefore(itemsSection.container, actionsDiv);
+    }
+  }
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
 
-    if (!validateForm(tableKey)) return;
+    // Block submit on invalid fields and jump to the first one.
+    if (!validateForm(tableKey)) {
+      (form.querySelector('.invalid') as HTMLElement | null)?.focus();
+      return;
+    }
+
+    // Validate the inline line items before creating anything.
+    if (itemsSection && !itemsSection.validate()) {
+      return;
+    }
 
     const payload = collectFormData(tableKey) as Record<string, unknown>;
-
-    if (tableKey === 'students' && !isEdit) {
-      payload.password = (document.getElementById('students-password') as HTMLInputElement).value;
-    }
 
     const pkAndTheirValues = getPkFields(tableKey).map((pkFieldName) => {
       const value =
@@ -1697,7 +2033,7 @@ async function showAnyForm<K extends TableKey>(
       });
 
       if (!response.ok) {
-        return showErrorMessage(await errorMessage(response));
+        return showErrorMessage(localizeFieldNames(await errorMessage(response), tableKey));
       }
 
       const responseJson: ApiResponse = await response.json();
@@ -1706,13 +2042,50 @@ async function showAnyForm<K extends TableKey>(
         return showErrorMessage(responseJson.message ?? 'Error saving record');
       }
 
+      // Persist the inline line items against the row we just created.
+      // If any line fails, roll the parent back so we never leave a half-created
+      // comprobante (no orphan header without its items).
+      if (itemsSection) {
+        const parentValue = String(payload[itemsSection.linkField] ?? '');
+        const failedArticles: string[] = [];
+
+        for (const item of itemsSection.collect()) {
+          const itemPayload = {
+            [itemsSection.linkField]: parentValue,
+            [itemsSection.fkField]: item.fkValue,
+            [itemsSection.qtyField]: item.qty,
+          };
+          const itemQuery = new URLSearchParams({
+            [itemsSection.linkField]: parentValue,
+            [itemsSection.fkField]: item.fkValue,
+          }).toString();
+
+          let itemOk = false;
+          try {
+            const itemResponse = await apiFetch(`/${itemsSection.childKey}?${itemQuery}`, {
+              method: 'POST',
+              body: JSON.stringify(itemPayload),
+            });
+            itemOk = itemResponse.ok;
+          } catch {
+            itemOk = false;
+          }
+
+          if (!itemOk) failedArticles.push(item.fkValue);
+        }
+
+        if (failedArticles.length > 0) {
+          // Rollback the parent we just created.
+          await apiFetch(`/${tableKey}?${queryParams}`, { method: 'DELETE' }).catch(() => {});
+          return showErrorMessage(
+            `${getLocalizedText(structure.commonText.itemSaveFailed)}: ${failedArticles.join(', ')}`
+          );
+        }
+      }
+
       hideAnyForm();
 
-      if (tableKey === 'students' && !isEdit && payload.password) {
-        setMessage(getLocalizedText(structure.commonText.studentAndUserCreated));
-      } else {
-        showSuccessMessage(responseJson.message ?? '');
-      }
+      showSuccessMessage(responseJson.message ?? '');
 
       loadTableData(tableKey);
     } catch (error) {
@@ -1841,9 +2214,6 @@ const initialTheme = localStorage.getItem('theme') || 'light';
 document.body.setAttribute('data-theme', initialTheme);
 
 applyStaticLanguageToUI();
-
-addTeacherBtn.addEventListener('click', () => showUserForm('editor'));
-addAdminBtn.addEventListener('click', () => showUserForm('admin'));
 
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();

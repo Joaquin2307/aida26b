@@ -131,16 +131,16 @@ describe('Menu Pickers (Theme & Language)', () => {
       await import('../src/app');
       
       const languageSelect = document.getElementById('language-picker') as HTMLSelectElement;
-      const initialText = (document.getElementById('students-btn') as HTMLButtonElement)?.textContent || '';
-      
+      const initialText = (document.getElementById('proveedores-btn') as HTMLButtonElement)?.textContent || '';
+
       languageSelect.value = 'en';
       languageSelect.dispatchEvent(new Event('change'));
-      
-      const newText = (document.getElementById('students-btn') as HTMLButtonElement)?.textContent || '';
-      
+
+      const newText = (document.getElementById('proveedores-btn') as HTMLButtonElement)?.textContent || '';
+
       // El texto debe cambiar si inicialmente estaba en español
-      if (initialText === 'Alumnos') {
-        expect(newText).toBe('Students');
+      if (initialText === 'Proveedores') {
+        expect(newText).toBe('Providers');
       }
     });
 
