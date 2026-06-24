@@ -14,7 +14,7 @@ import { getHandler } from './routes/get';
 import { putHandler } from './routes/put';
 import { postHandler } from './routes/post';
 import { deleteHandler } from './routes/delete';
-import { postComprobanteWithItemsHandler } from './routes/comprobante';
+import { postWithItemsHandler } from './routes/with_items';
 
 // Load environment variables before reading process.env
 dotenv.config();
@@ -420,16 +420,16 @@ app.post(
   }
 );
 
-// Compound endpoint: create a comprobante and its line items atomically.
-// Both `comprobantes` and `detalle_comprobante` share the same create policy
-// (admin + editor), so guarding on `comprobantes` create is sufficient here.
+// Generic compound endpoint: create a parent row and its detail rows atomically
+// (driven by the SSOT `detailOf` relationship). Create access is checked against
+// the parent table named in the path.
 app.post(
-  '/api/comprobantes/with-items',
+  '/api/:tableName/with-items',
   requireAuth,
   requirePasswordReady,
-  requireTableAccess('create', 'comprobantes'),
+  requireTableAccess('create'),
   async (req, res) => {
-    return postComprobanteWithItemsHandler(req, res, pool);
+    return postWithItemsHandler(req, res, pool);
   }
 );
 

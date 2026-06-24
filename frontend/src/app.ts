@@ -2056,7 +2056,7 @@ async function showAnyForm<K extends TableKey>(
 
         const response = await apiFetch(`/${tableKey}/with-items`, {
           method: 'POST',
-          body: JSON.stringify({ comprobante: payload, items }),
+          body: JSON.stringify({ record: payload, items }),
         });
 
         if (!response.ok) {

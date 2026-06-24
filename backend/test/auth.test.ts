@@ -273,7 +273,7 @@ test('editor can create a comprobante with its line items', async () => {
       method: 'POST',
       cookie,
       body: {
-        comprobante: {
+        record: {
           numero: 'FA-0001-00000099',
           tipo: 'factura_a',
           cuit: '27-22222222-2',
@@ -297,7 +297,7 @@ test('creating a comprobante with an unknown article returns 400', async () => {
       method: 'POST',
       cookie,
       body: {
-        comprobante: {
+        record: {
           numero: 'FA-0001-00000100',
           tipo: 'factura_a',
           cuit: '27-22222222-2',
