@@ -59,6 +59,14 @@ type ColumnDef = {
   foreignKey?: ForeignKeyDef;
 }
 
+type Role = 'admin' | 'editor' | 'reader';
+
+type TableAction = 'read' | 'create' | 'update' | 'delete';
+
+// Roles allowed to perform each action on a table. Any action left unset falls
+// back to the system default (see DEFAULT_ACCESS in ssot/structure.ts).
+type TableAccess = Partial<Record<TableAction, Role[]>>;
+
 type TableStructure = {
   columns: Record<string, ColumnDef>
   pk: string | string[]
@@ -66,6 +74,11 @@ type TableStructure = {
   title?: LocalizedText
   addButtonLabel?: LocalizedText
   referencedTables?: string[]
+  // Per-role access control for this table's CRUD actions. Omit to use defaults.
+  access?: TableAccess
+  // When set, this table is the detail (line items) of another table and is
+  // shown as a per-row drill-down instead of a top-level navigation tab.
+  detailOf?: string
 }
 
 type InferType<FieldDefs extends Record<string, ColumnDef>> = {
@@ -88,4 +101,4 @@ type RendererProps<K extends TableKey> = {
 
 type RendererFunc = <K extends TableKey>(props: RendererProps<K>) => HTMLElement;
 
-export type {TypeMap, MyTypeNames, ColumnValidator, ColumnDef, TableStructure, InferType, TableKey, TableRecordMap, Response, ForeignKeyDef, Language, LocalizedText, RendererProps, RendererFunc};
+export type {TypeMap, MyTypeNames, ColumnValidator, ColumnDef, TableStructure, InferType, TableKey, TableRecordMap, Response, ForeignKeyDef, Language, LocalizedText, RendererProps, RendererFunc, Role, TableAction, TableAccess};

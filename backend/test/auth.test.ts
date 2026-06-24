@@ -4,6 +4,7 @@ import http from 'node:http';
 import { test } from 'vitest';
 import { app, pool } from '../src/server';
 import { hashPassword } from '../src/auth';
+import { canRoleDo } from '../../shared/src/ssot/structure';
 
 class FakeDb {
   constructor(users) {
@@ -197,10 +198,32 @@ test('reader can read but cannot mutate data', async () => {
   });
 });
 
-test('editor can create data but cannot manage users', async () => {
+test('editor can view but cannot create providers, and cannot manage users', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
     const cookie = await login(baseUrl, 'editor', 'editorpass');
+
+    // Editors may view providers...
+    assert.equal((await request(baseUrl, '/api/proveedores', { cookie })).status, 200);
+
+    // ...but only admins can create them.
+    const createProveedor = await request(baseUrl, '/api/proveedores', {
+      method: 'POST',
+      cookie,
+      body: { cuit: '27-22222222-2', razon_social: 'Grace Hopper SRL', email: 'grace@example.com', telefono: '222', direccion: 'Calle 2', condicion_iva: 'responsable_inscripto' },
+    });
+    assert.equal(createProveedor.status, 403);
+    assert.equal(db.audit.at(-1).event_type, 'permission_denied');
+
+    const createUser = await request(baseUrl, '/api/admin/users', { method: 'POST', cookie, body: { username: 'other', password: 'otherpass', role: 'reader' } });
+    assert.equal(createUser.status, 403);
+  });
+});
+
+test('admin can create providers', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'admin', 'adminpass');
     const createProveedor = await request(baseUrl, '/api/proveedores', {
       method: 'POST',
       cookie,
@@ -208,10 +231,30 @@ test('editor can create data but cannot manage users', async () => {
     });
     assert.equal(createProveedor.status, 201);
     assert.equal(db.proveedores.find((p) => p.cuit === '27-22222222-2').razon_social, 'Grace Hopper SRL');
-
-    const createUser = await request(baseUrl, '/api/admin/users', { method: 'POST', cookie, body: { username: 'other', password: 'otherpass', role: 'reader' } });
-    assert.equal(createUser.status, 403);
   });
+});
+
+test('access matrix: editors create vouchers only; admins do everything', () => {
+  // Editors can create vouchers and their line items...
+  assert.equal(canRoleDo('editor', 'comprobantes', 'create'), true);
+  assert.equal(canRoleDo('editor', 'detalle_comprobante', 'create'), true);
+  // ...but cannot edit or delete them.
+  assert.equal(canRoleDo('editor', 'comprobantes', 'update'), false);
+  assert.equal(canRoleDo('editor', 'comprobantes', 'delete'), false);
+  // Editors cannot create providers or articles.
+  assert.equal(canRoleDo('editor', 'proveedores', 'create'), false);
+  assert.equal(canRoleDo('editor', 'articulos', 'create'), false);
+  // Everyone can read.
+  assert.equal(canRoleDo('reader', 'comprobantes', 'read'), true);
+  assert.equal(canRoleDo('editor', 'proveedores', 'read'), true);
+  // Readers cannot mutate anything.
+  assert.equal(canRoleDo('reader', 'comprobantes', 'create'), false);
+  // Admins can do everything on every table.
+  for (const t of ['proveedores', 'articulos', 'comprobantes', 'detalle_comprobante']) {
+    for (const a of ['read', 'create', 'update', 'delete']) {
+      assert.equal(canRoleDo('admin', t, a), true);
+    }
+  }
 });
 
 test('admin can create users and reset passwords', async () => {

@@ -1,6 +1,6 @@
 // Main application file
 // Code and comments in English
-import { structure } from '@shared/ssot/structure';
+import { structure, canRoleDo } from '@shared/ssot/structure';
 import {
   Language,
   LocalizedText,
@@ -8,6 +8,7 @@ import {
   ColumnDef,
   TableStructure,
   TableKey,
+  TableAction,
   TableRecordMap,
   RendererProps,
   RendererFunc,
@@ -123,8 +124,10 @@ const tableNavButtons = {} as Record<TableKey, HTMLButtonElement>;
 
 let currentUser: AuthUser | null = null;
 
-function canWriteAcademic(): boolean {
-  return currentUser?.role === 'admin' || currentUser?.role === 'editor';
+// Whether the current user may perform `action` on `tableKey`, per the SSOT
+// access rules (the same rules the backend enforces).
+function canDo(tableKey: TableKey, action: TableAction): boolean {
+  return !!currentUser && canRoleDo(currentUser.role, tableKey, action);
 }
 
 function setMessage(message = ''): void {
@@ -166,6 +169,9 @@ function showApp(user: AuthUser): void {
   appShell.style.display = 'block';
 
   currentUserEl.textContent = `${user.username} (${user.role})`;
+
+  // Rebuild nav so it reflects this user's read permissions.
+  createTableNavButtons();
 
   showSection(activeTableKey, false);
 }
@@ -579,8 +585,12 @@ function updateNavButtonsText(): void {
 
 function createTableNavButtons(): void {
   navContainer.innerHTML = '';
+  for (const key of Object.keys(tableNavButtons) as TableKey[]) delete tableNavButtons[key];
 
   for (const key of navTableKeys) {
+    // Hide tabs the current user is not allowed to read.
+    if (currentUser && !canRoleDo(currentUser.role, key, 'read')) continue;
+
     const config = structure.tables[key];
     const button = document.createElement('button');
 
@@ -643,7 +653,7 @@ function showSection(section: TableKey, pushState = true): void {
     getLocalizedText(tableConfig.addButtonLabel) ||
     `${getLocalizedText(structure.commonText.add)} ${getLocalizedText(tableConfig.uiName)}`;
 
-  addRecordBtn.style.display = canWriteAcademic() ? 'inline-block' : 'none';
+  addRecordBtn.style.display = canDo(section, 'create') ? 'inline-block' : 'none';
 
   hideAnyForm();
   renderFilters(section);
@@ -687,7 +697,7 @@ function enterDetailView(
   addRecordBtn.textContent =
     getLocalizedText(childConfig.addButtonLabel) ||
     `${getLocalizedText(structure.commonText.add)} ${getLocalizedText(childConfig.uiName)}`;
-  addRecordBtn.style.display = canWriteAcademic() ? 'inline-block' : 'none';
+  addRecordBtn.style.display = canDo(childKey, 'create') ? 'inline-block' : 'none';
 
   // Swap the filter UI for a "back" bar.
   filterContainer.style.display = 'none';
@@ -819,7 +829,9 @@ function renderAnyTable<K extends TableKey>(
   const thead = sharedTable.querySelector('thead')!;
   const tbody = sharedTable.querySelector('tbody')!;
   const tableStructure = structure.tables[tableKey];
-  const showActions = canWriteAcademic();
+  const canEdit = canDo(tableKey, 'update');
+  const canDelete = canDo(tableKey, 'delete');
+  const showActions = canEdit || canDelete;
 
   // Detail drill-down: which child tables hang off this one, and (when we are
   // already inside a detail view) which column links back to the parent.
@@ -913,30 +925,34 @@ function renderAnyTable<K extends TableKey>(
         return;
       }
 
-      const editBtn = document.createElement('button');
-      editBtn.className = 'edit-btn';
-      editBtn.textContent = getLocalizedText(structure.commonText.edit);
-      editBtn.dataset.pk = JSON.stringify(pkValues);
-      editBtn.addEventListener('click', (event) => {
-        const values = JSON.parse(
-          (event.currentTarget as HTMLElement).dataset.pk || '[]'
-        );
-        window.editRecord(tableKey, ...values);
-      });
+      if (canEdit) {
+        const editBtn = document.createElement('button');
+        editBtn.className = 'edit-btn';
+        editBtn.textContent = getLocalizedText(structure.commonText.edit);
+        editBtn.dataset.pk = JSON.stringify(pkValues);
+        editBtn.addEventListener('click', (event) => {
+          const values = JSON.parse(
+            (event.currentTarget as HTMLElement).dataset.pk || '[]'
+          );
+          window.editRecord(tableKey, ...values);
+        });
+        actionsTd.appendChild(editBtn);
+      }
 
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'delete-btn';
-      deleteBtn.textContent = getLocalizedText(structure.commonText.delete);
-      deleteBtn.dataset.pk = JSON.stringify(pkValues);
-      deleteBtn.addEventListener('click', (event) => {
-        const values = JSON.parse(
-          (event.currentTarget as HTMLElement).dataset.pk || '[]'
-        );
-        window.deleteRecord(tableKey, ...values);
-      });
+      if (canDelete) {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = getLocalizedText(structure.commonText.delete);
+        deleteBtn.dataset.pk = JSON.stringify(pkValues);
+        deleteBtn.addEventListener('click', (event) => {
+          const values = JSON.parse(
+            (event.currentTarget as HTMLElement).dataset.pk || '[]'
+          );
+          window.deleteRecord(tableKey, ...values);
+        });
+        actionsTd.appendChild(deleteBtn);
+      }
 
-      actionsTd.appendChild(editBtn);
-      actionsTd.appendChild(deleteBtn);
       row.appendChild(actionsTd);
     }
 
@@ -1902,13 +1918,14 @@ async function showAnyForm<K extends TableKey>(
   record?: Partial<TableRecordMap[K]>,
   options?: { lockedDefaults?: Record<string, string> }
 ): Promise<void> {
-  if (!canWriteAcademic()) {
+  const isEdit = !!record;
+
+  if (!canDo(tableKey, isEdit ? 'update' : 'create')) {
     setMessage(getLocalizedText(structure.commonText.noEditPermission));
     return;
   }
 
   const tableConfig = structure.tables[tableKey];
-  const isEdit = !!record;
   const formId = `${tableKey}-form`;
   const lockedDefaults = options?.lockedDefaults ?? {};
   // Pre-filled values for an add form (e.g. the parent key inside a detail view).

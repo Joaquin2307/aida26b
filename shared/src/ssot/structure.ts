@@ -1,4 +1,4 @@
-import { TableStructure } from '../types/types';
+import { TableStructure, Role, TableAction } from '../types/types';
 
 type LocalizedText = {
   es: string;
@@ -16,6 +16,8 @@ function localizeText(text: LocalizedText): string {
 export const structure = {
   tables: {
     proveedores: {
+      // Only admins manage providers; editors and readers can view them.
+      access: { create: ['admin'], update: ['admin'], delete: ['admin'] },
       columns: {
         cuit: {
           type: 'string',
@@ -94,6 +96,8 @@ export const structure = {
     } satisfies TableStructure,
 
     articulos: {
+      // Only admins manage articles; editors and readers can view them.
+      access: { create: ['admin'], update: ['admin'], delete: ['admin'] },
       columns: {
         codigo: {
           type: 'string',
@@ -130,6 +134,8 @@ export const structure = {
 
     comprobantes: {
       pk: 'numero',
+      // Editors can create vouchers; only admins may edit or delete them.
+      access: { create: ['admin', 'editor'], update: ['admin'], delete: ['admin'] },
       uiName: { es: 'Comprobante', en: 'Voucher' },
       columns: {
         numero: {
@@ -224,6 +230,8 @@ export const structure = {
 
     detalle_comprobante: {
       pk: ['numero', 'codigo'],
+      // Line items follow the voucher policy: editors create, admins edit/delete.
+      access: { create: ['admin', 'editor'], update: ['admin'], delete: ['admin'] },
       uiName: { es: 'Detalle', en: 'Item' },
       columns: {
         numero: {
@@ -440,3 +448,26 @@ export const structure = {
     },
   } satisfies Record<string, LocalizedText>,
 };
+
+// -----------------------------------------------------------------------------
+// Role-based access control (single source of truth, shared by backend + frontend)
+// -----------------------------------------------------------------------------
+
+// Behavior for tables (or actions) that do not declare their own `access`.
+const DEFAULT_ACCESS: Record<TableAction, Role[]> = {
+  read: ['admin', 'editor', 'reader'],
+  create: ['admin', 'editor'],
+  update: ['admin', 'editor'],
+  delete: ['admin', 'editor'],
+};
+
+// Roles allowed to perform `action` on `tableKey`, falling back to defaults.
+export function rolesForTableAction(tableKey: string, action: TableAction): Role[] {
+  const tables = structure.tables as Record<string, TableStructure>;
+  return tables[tableKey]?.access?.[action] ?? DEFAULT_ACCESS[action];
+}
+
+// Whether `role` may perform `action` on `tableKey`.
+export function canRoleDo(role: Role, tableKey: string, action: TableAction): boolean {
+  return rolesForTableAction(tableKey, action).includes(role);
+}
