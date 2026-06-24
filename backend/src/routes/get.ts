@@ -308,7 +308,7 @@ function getSelectStatement(tableName: TableKey): string {
   return `SELECT ${selectFields.join(", ")}`;
 }
 
-function getBaseSelectQuery(tableName: TableKey): string {
+export function getBaseSelectQuery(tableName: TableKey): string {
   const referencedRelations = getReferencedRelations(tableName);
 
   if (referencedRelations.length > 0) {
@@ -322,7 +322,7 @@ function getBaseSelectQuery(tableName: TableKey): string {
   return `SELECT * FROM ${tableName}`;
 }
 
-function getListFilterConfig(tableName: TableKey): Record<string, ColumnDef> {
+export function getListFilterConfig(tableName: TableKey): Record<string, ColumnDef> {
   const baseColumns = structure.tables[tableName].columns as Record<
     string,
     ColumnDef

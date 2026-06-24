@@ -15,6 +15,7 @@ import { putHandler } from './routes/put';
 import { postHandler } from './routes/post';
 import { deleteHandler } from './routes/delete';
 import { postWithItemsHandler } from './routes/with_items';
+import { getMonthlyReportHandler } from './routes/report';
 
 // Load environment variables before reading process.env
 dotenv.config();
@@ -430,6 +431,18 @@ app.post(
   requireTableAccess('create'),
   async (req, res) => {
     return postWithItemsHandler(req, res, pool);
+  }
+);
+
+// Generic reporting: monthly aggregation over any SSOT table. Read access is
+// checked against the same table named in the path.
+app.get(
+  '/api/reports/:tableName/monthly',
+  requireAuth,
+  requirePasswordReady,
+  requireTableAccess('read'),
+  async (req, res) => {
+    return getMonthlyReportHandler(req, res, pool);
   }
 );
 

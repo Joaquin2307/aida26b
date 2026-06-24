@@ -81,6 +81,15 @@ class FakeDb {
       user.must_change_password = sql.includes('must_change_password = true');
       return { rows: [publicRow(user)] };
     }
+    // Generic monthly report aggregation (SELECT ... FROM (base) ...). Matched
+    // before the generic proveedores branch below, which also matches a table name.
+    if (sql.startsWith('SELECT base.')) {
+      return {
+        rows: [
+          { cuit: '20-11223344-5', proveedor_nombre: 'Servicios Pampa', record_count: 2, total: '15000.00' },
+        ],
+      };
+    }
     if (sql.startsWith('SELECT * FROM proveedores ORDER BY')) {
       return { rows: this.proveedores };
     }
@@ -375,6 +384,43 @@ test('access matrix: editors create vouchers only; admins do everything', () => 
       assert.equal(canRoleDo('admin', t, a), true);
     }
   }
+});
+
+test('monthly report rejects an invalid month', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'admin', 'adminpass');
+    const res = await request(baseUrl, '/api/reports/comprobantes/monthly?year=2026&month=13&groupBy=cuit&dateField=fecha', { cookie });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('monthly report rejects unknown columns', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'admin', 'adminpass');
+    const res = await request(baseUrl, '/api/reports/comprobantes/monthly?year=2026&month=5&groupBy=not_a_column&dateField=fecha', { cookie });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('generic monthly report aggregates a table for any authenticated user', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'reader', 'readerpass');
+    const res = await request(
+      baseUrl,
+      '/api/reports/comprobantes/monthly?year=2026&month=5&groupBy=cuit,proveedor_nombre&dateField=fecha&measure=total',
+      { cookie }
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.table, 'comprobantes');
+    assert.equal(res.body.data.year, 2026);
+    assert.equal(res.body.data.month, 5);
+    assert.ok(Array.isArray(res.body.data.rows));
+    assert.equal(res.body.data.rows[0].cuit, '20-11223344-5');
+    assert.equal(res.body.data.rows[0].total, '15000.00');
+  });
 });
 
 test('admin can create users and reset passwords', async () => {
