@@ -9,6 +9,7 @@
     "dev": "tsx watch src/server.ts",
     "migrate": "tsx src/migrate.ts",
     "seed-admin": "tsx src/seed-admin.ts",
+    "seed-user": "tsx src/seed-user.ts",
     "test": "vitest run --config vitest.config.mts",
     "test:db": "vitest run --config vitest.db.config.mts"
   },
