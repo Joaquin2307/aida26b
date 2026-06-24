@@ -15,7 +15,7 @@ import {
 import {
   sendSuccessOperationMessage,
   sendNotFoundMessage,
-  sendErrorMessage,
+  sendDbError,
 } from '../status_messages';
 
 import {
@@ -96,7 +96,7 @@ export async function putHandler(
   ]);
 
   if (!result.success) {
-    return sendErrorMessage(res, result.message);
+    return sendDbError(res, result.data, entityName);
   }
 
   if (result.data?.rowCount === 0) {

@@ -12,6 +12,10 @@ class FakeDb {
     this.sessions = [];
     this.audit = [];
     this.proveedores = [];
+    this.comprobantes = [];
+    this.detalle = [];
+    // Known articles, used to emulate the FK constraint on detalle_comprobante.
+    this.articulos = ['ART-001', 'ART-002', 'ART-003'];
     this.nextUserId = Math.max(...users.map((user) => user.id)) + 1;
   }
 
@@ -89,6 +93,12 @@ class FakeDb {
       return { rows: this.proveedores };
     }
     if (sql.startsWith('INSERT INTO proveedores')) {
+      if (this.proveedores.some((p) => p.cuit === params[0])) {
+        throw Object.assign(new Error('unique violation'), {
+          code: '23505',
+          detail: `Key (cuit)=(${params[0]}) already exists.`,
+        });
+      }
       const proveedor = {
         cuit: params[0],
         razon_social: params[1],
@@ -99,6 +109,27 @@ class FakeDb {
       };
       this.proveedores.push(proveedor);
       return { rows: [proveedor] };
+    }
+    if (sql.startsWith('INSERT INTO comprobantes')) {
+      const comprobante = {
+        numero: params[0],
+        tipo: params[1],
+        cuit: params[2],
+        fecha: params[3],
+        estado: params[4],
+      };
+      this.comprobantes.push(comprobante);
+      return { rows: [comprobante] };
+    }
+    if (sql.startsWith('INSERT INTO detalle_comprobante')) {
+      if (!this.articulos.includes(params[1])) {
+        throw Object.assign(new Error('foreign key violation'), {
+          code: '23503',
+          detail: `Key (codigo)=(${params[1]}) is not present in table "articulos".`,
+        });
+      }
+      this.detalle.push({ numero: params[0], codigo: params[1], cantidad: params[2] });
+      return { rows: [] };
     }
 
     throw new Error(`Unhandled query: ${sql}`);
@@ -231,6 +262,95 @@ test('admin can create providers', async () => {
     });
     assert.equal(createProveedor.status, 201);
     assert.equal(db.proveedores.find((p) => p.cuit === '27-22222222-2').razon_social, 'Grace Hopper SRL');
+  });
+});
+
+test('editor can create a comprobante with its line items', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'editor', 'editorpass');
+    const res = await request(baseUrl, '/api/comprobantes/with-items', {
+      method: 'POST',
+      cookie,
+      body: {
+        comprobante: {
+          numero: 'FA-0001-00000099',
+          tipo: 'factura_a',
+          cuit: '27-22222222-2',
+          fecha: '2026-05-10',
+          estado: 'pendiente',
+        },
+        items: [{ codigo: 'ART-001', cantidad: 2 }],
+      },
+    });
+    assert.equal(res.status, 201);
+    assert.equal(db.comprobantes.length, 1);
+    assert.equal(db.detalle.length, 1);
+  });
+});
+
+test('creating a comprobante with an unknown article returns 400', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'editor', 'editorpass');
+    const res = await request(baseUrl, '/api/comprobantes/with-items', {
+      method: 'POST',
+      cookie,
+      body: {
+        comprobante: {
+          numero: 'FA-0001-00000100',
+          tipo: 'factura_a',
+          cuit: '27-22222222-2',
+          fecha: '2026-05-10',
+          estado: 'pendiente',
+        },
+        items: [{ codigo: 'NO-EXISTE', cantidad: 1 }],
+      },
+    });
+    assert.equal(res.status, 400);
+    assert.ok(res.body.message.includes('NO-EXISTE'));
+  });
+});
+
+test('editor cannot edit or delete a comprobante', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'editor', 'editorpass');
+
+    const put = await request(baseUrl, '/api/comprobantes?numero=FA-0001-00000001', {
+      method: 'PUT',
+      cookie,
+      body: { numero: 'FA-0001-00000001', estado: 'pagado' },
+    });
+    assert.equal(put.status, 403);
+
+    const del = await request(baseUrl, '/api/comprobantes?numero=FA-0001-00000001', {
+      method: 'DELETE',
+      cookie,
+    });
+    assert.equal(del.status, 403);
+    assert.equal(db.audit.at(-1).event_type, 'permission_denied');
+  });
+});
+
+test('creating a provider that already exists returns 409', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'admin', 'adminpass');
+    const body = {
+      cuit: '27-22222222-2',
+      razon_social: 'Grace Hopper SRL',
+      email: 'grace@example.com',
+      telefono: '222',
+      direccion: 'Calle 2',
+      condicion_iva: 'responsable_inscripto',
+    };
+    const first = await request(baseUrl, '/api/proveedores', { method: 'POST', cookie, body });
+    assert.equal(first.status, 201);
+
+    const second = await request(baseUrl, '/api/proveedores', { method: 'POST', cookie, body });
+    assert.equal(second.status, 409);
+    assert.ok(second.body.message.includes('already exists'));
   });
 });
 

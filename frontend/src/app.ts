@@ -2044,6 +2044,37 @@ async function showAnyForm<K extends TableKey>(
     const queryParams = new URLSearchParams(pkAndTheirValues).toString();
 
     try {
+      // A comprobante and its line items are created atomically by a dedicated
+      // endpoint, so a failing item never leaves an orphan header — and the flow
+      // works for editors, who may create comprobantes but not delete them.
+      if (!isEdit && itemsSection) {
+        const section = itemsSection;
+        const items = section.collect().map((item) => ({
+          [section.fkField]: item.fkValue,
+          [section.qtyField]: item.qty,
+        }));
+
+        const response = await apiFetch(`/${tableKey}/with-items`, {
+          method: 'POST',
+          body: JSON.stringify({ comprobante: payload, items }),
+        });
+
+        if (!response.ok) {
+          return showErrorMessage(localizeFieldNames(await errorMessage(response), tableKey));
+        }
+
+        const responseJson: ApiResponse = await response.json();
+
+        if (!responseJson.success) {
+          return showErrorMessage(responseJson.message ?? 'Error saving record');
+        }
+
+        hideAnyForm();
+        showSuccessMessage(responseJson.message ?? '');
+        loadTableData(tableKey);
+        return;
+      }
+
       const response = await apiFetch(`/${tableKey}?${queryParams}`, {
         method: isEdit ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
@@ -2057,47 +2088,6 @@ async function showAnyForm<K extends TableKey>(
 
       if (!responseJson.success) {
         return showErrorMessage(responseJson.message ?? 'Error saving record');
-      }
-
-      // Persist the inline line items against the row we just created.
-      // If any line fails, roll the parent back so we never leave a half-created
-      // comprobante (no orphan header without its items).
-      if (itemsSection) {
-        const parentValue = String(payload[itemsSection.linkField] ?? '');
-        const failedArticles: string[] = [];
-
-        for (const item of itemsSection.collect()) {
-          const itemPayload = {
-            [itemsSection.linkField]: parentValue,
-            [itemsSection.fkField]: item.fkValue,
-            [itemsSection.qtyField]: item.qty,
-          };
-          const itemQuery = new URLSearchParams({
-            [itemsSection.linkField]: parentValue,
-            [itemsSection.fkField]: item.fkValue,
-          }).toString();
-
-          let itemOk = false;
-          try {
-            const itemResponse = await apiFetch(`/${itemsSection.childKey}?${itemQuery}`, {
-              method: 'POST',
-              body: JSON.stringify(itemPayload),
-            });
-            itemOk = itemResponse.ok;
-          } catch {
-            itemOk = false;
-          }
-
-          if (!itemOk) failedArticles.push(item.fkValue);
-        }
-
-        if (failedArticles.length > 0) {
-          // Rollback the parent we just created.
-          await apiFetch(`/${tableKey}?${queryParams}`, { method: 'DELETE' }).catch(() => {});
-          return showErrorMessage(
-            `${getLocalizedText(structure.commonText.itemSaveFailed)}: ${failedArticles.join(', ')}`
-          );
-        }
       }
 
       hideAnyForm();

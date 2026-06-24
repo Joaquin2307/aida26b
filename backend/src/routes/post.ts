@@ -14,7 +14,7 @@ import {
 import {
   sendSuccessOperationMessage,
   sendNotFoundMessage,
-  sendErrorMessage,
+  sendDbError,
 } from '../status_messages';
 
 import {
@@ -60,7 +60,7 @@ export async function postHandler(
   const queryResponse = await tryQuery(pool, query, valuesToInsert);
 
   if (!queryResponse.success) {
-    return sendErrorMessage(res, queryResponse.message);
+    return sendDbError(res, queryResponse.data, entityName);
   }
 
   return sendSuccessOperationMessage(

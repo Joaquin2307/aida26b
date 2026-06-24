@@ -14,6 +14,7 @@ import { getHandler } from './routes/get';
 import { putHandler } from './routes/put';
 import { postHandler } from './routes/post';
 import { deleteHandler } from './routes/delete';
+import { postComprobanteWithItemsHandler } from './routes/comprobante';
 
 // Load environment variables before reading process.env
 dotenv.config();
@@ -142,21 +143,23 @@ const requireAdmin: RequestHandler = async (req, res, next) => {
 };
 
 // Per-table, per-action authorization driven by the SSOT `access` declarations.
-// `tableName` comes from the generic /api/:tableName routes.
+// By default the table comes from the generic /api/:tableName routes; pass an
+// explicit `tableName` for routes that do not carry that param (e.g. compound
+// endpoints like /api/comprobantes/with-items).
 const requireTableAccess =
-  (action: TableAction): RequestHandler =>
+  (action: TableAction, tableName?: string): RequestHandler =>
   async (req, res, next) => {
     const role = (req as AuthedRequest).user?.role;
-    const tableName = req.params.tableName;
+    const table = tableName ?? req.params.tableName;
 
-    if (role && canRoleDo(role, tableName, action)) {
+    if (role && canRoleDo(role, table, action)) {
       return next();
     }
 
     await audit(req, 'permission_denied', 'denied', {
       path: req.path,
       method: req.method,
-      table: tableName,
+      table,
       action,
     });
 
@@ -414,6 +417,19 @@ app.post(
       console.error('Error resetting password:', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
+  }
+);
+
+// Compound endpoint: create a comprobante and its line items atomically.
+// Both `comprobantes` and `detalle_comprobante` share the same create policy
+// (admin + editor), so guarding on `comprobantes` create is sufficient here.
+app.post(
+  '/api/comprobantes/with-items',
+  requireAuth,
+  requirePasswordReady,
+  requireTableAccess('create', 'comprobantes'),
+  async (req, res) => {
+    return postComprobanteWithItemsHandler(req, res, pool);
   }
 );
 

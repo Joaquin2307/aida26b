@@ -8,7 +8,7 @@ import { getPkFields } from '../../../shared/src/utils/utils';
 import {
   sendSuccessOperationMessage,
   sendNotFoundMessage,
-  sendErrorMessage,
+  sendDbError,
 } from '../status_messages';
 
 import {
@@ -63,7 +63,7 @@ export async function deleteHandler(
   const queryResponse: Response = await tryQuery(pool, query, pkValues);
 
   if (!queryResponse.success) {
-    return sendErrorMessage(res, queryResponse.message);
+    return sendDbError(res, queryResponse.data, entityName);
   }
 
   if (queryResponse.data?.rowCount === 0) {
