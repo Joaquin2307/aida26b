@@ -246,6 +246,34 @@ select:focus {
     margin-top: 20px;
 }
 
+/* Record form: wide, multi-column layout. The form lives inside #record-form
+   (which the app toggles to display:flex), so we make the form fill the row and
+   arrange its fields in a responsive grid. */
+#record-form {
+    width: 100%;
+}
+
+#record-form form {
+    width: 100%;
+    max-width: 920px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px 24px;
+    align-items: start;
+}
+
+/* Title, line-items editor and action buttons span the full width. */
+#record-form form > h3,
+#record-form form > .items-section,
+#record-form form > .form-actions {
+    grid-column: 1 / -1;
+}
+
+/* The grid gap handles spacing between fields. */
+#record-form .form-group {
+    margin-bottom: 0;
+}
+
 .auth-section {
     max-width: 360px;
     margin: 0 auto;
