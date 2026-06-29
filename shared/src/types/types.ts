@@ -101,4 +101,15 @@ type RendererProps<K extends TableKey> = {
 
 type RendererFunc = <K extends TableKey>(props: RendererProps<K>) => HTMLElement;
 
-export type {TypeMap, MyTypeNames, ColumnValidator, ColumnDef, TableStructure, InferType, TableKey, TableRecordMap, Response, ForeignKeyDef, Language, LocalizedText, RendererProps, RendererFunc, Role, TableAction, TableAccess};
+// A monthly report definition (consumed by GET /api/reports/:table/monthly).
+// Declarative so the frontend can render any report generically from the SSOT.
+type ReportDef = {
+  title: LocalizedText;
+  table: string;          // SSOT table to aggregate
+  groupBy: string[];      // columns to group rows by
+  dateField: string;      // date column used to select the month
+  measure?: string;       // optional numeric column to sum (omit for count only)
+  columns: Record<string, LocalizedText>; // result column -> bilingual header
+};
+
+export type {TypeMap, MyTypeNames, ColumnValidator, ColumnDef, TableStructure, InferType, TableKey, TableRecordMap, Response, ForeignKeyDef, Language, LocalizedText, RendererProps, RendererFunc, Role, TableAction, TableAccess, ReportDef};

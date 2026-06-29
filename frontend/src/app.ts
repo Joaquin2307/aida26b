@@ -83,9 +83,18 @@ const addRecordBtn = document.getElementById('add-record-btn') as HTMLButtonElem
 const formContainer = document.getElementById('record-form') as HTMLElement;
 const sharedTable = document.getElementById('records-table') as HTMLTableElement;
 const navContainer = document.getElementById('table-nav') as HTMLElement;
+const reportNavContainer = document.getElementById('report-nav') as HTMLElement;
 const menuContainer = document.getElementById('menu-nav') as HTMLElement;
 
+const recordsSection = document.getElementById('records-section') as HTMLElement;
+const reportSection = document.getElementById('report-section') as HTMLElement;
+const reportTitle = document.getElementById('report-title') as HTMLElement;
+const reportControls = document.getElementById('report-controls') as HTMLElement;
+const reportMessage = document.getElementById('report-message') as HTMLElement;
+const reportTable = document.getElementById('report-table') as HTMLTableElement;
+
 const tableKeys = Object.keys(structure.tables) as TableKey[];
+const reportKeys = Object.keys(structure.reports) as Array<keyof typeof structure.reports>;
 // Tables shown as top-level navigation tabs (detail/line-item tables are
 // reached through a per-row drill-down, not their own tab).
 const navTableKeys = tableKeys.filter(
@@ -117,6 +126,7 @@ type DetailContext = {
 
 let detailContext: DetailContext | null = null;
 const tableNavButtons = {} as Record<TableKey, HTMLButtonElement>;
+const reportNavButtons: Record<string, HTMLButtonElement> = {};
 
 // -----------------------------------------------------------------------------
 // Auth/session state
@@ -172,6 +182,7 @@ function showApp(user: AuthUser): void {
 
   // Rebuild nav so it reflects this user's read permissions.
   createTableNavButtons();
+  createReportNavButtons();
 
   showSection(activeTableKey, false);
 }
@@ -605,6 +616,153 @@ function createTableNavButtons(): void {
   }
 }
 
+// One nav button per report declared in the SSOT (generic: any report shows up
+// here automatically), hidden when the user cannot read the underlying table.
+function createReportNavButtons(): void {
+  reportNavContainer.innerHTML = '';
+  for (const key of Object.keys(reportNavButtons)) delete reportNavButtons[key];
+
+  for (const key of reportKeys) {
+    const report = structure.reports[key];
+    if (currentUser && !canRoleDo(currentUser.role, report.table, 'read')) continue;
+
+    const button = document.createElement('button');
+    button.id = `report-${String(key)}-btn`;
+    button.textContent = getLocalizedText(report.title);
+    button.addEventListener('click', () => showReport(key));
+
+    reportNavContainer.appendChild(button);
+    reportNavButtons[String(key)] = button;
+  }
+}
+
+// Renders a report view: month/year controls plus the result table. Generic —
+// it works for any ReportDef in the SSOT.
+function showReport(reportKey: keyof typeof structure.reports): void {
+  const report = structure.reports[reportKey];
+
+  recordsSection.style.display = 'none';
+  reportSection.style.display = '';
+  hideAnyForm();
+  Object.values(tableNavButtons).forEach((button) => button.classList.remove('active'));
+  Object.entries(reportNavButtons).forEach(([key, button]) =>
+    button.classList.toggle('active', key === String(reportKey))
+  );
+
+  reportTitle.textContent = getLocalizedText(report.title);
+  reportMessage.hidden = true;
+  reportTable.querySelector('thead')!.innerHTML = '';
+  reportTable.querySelector('tbody')!.innerHTML = '';
+
+  // Month/year controls, defaulting to the current month.
+  reportControls.innerHTML = '';
+  const now = new Date();
+
+  const monthSelect = document.createElement('select');
+  for (let month = 1; month <= 12; month++) {
+    const option = document.createElement('option');
+    option.value = String(month);
+    option.textContent = String(month);
+    monthSelect.appendChild(option);
+  }
+  monthSelect.value = String(now.getMonth() + 1);
+
+  const yearInput = document.createElement('input');
+  yearInput.type = 'number';
+  yearInput.min = '2000';
+  yearInput.max = '2100';
+  yearInput.value = String(now.getFullYear());
+
+  const monthLabel = document.createElement('label');
+  monthLabel.textContent = getLocalizedText(structure.commonText.month);
+  monthLabel.appendChild(monthSelect);
+
+  const yearLabel = document.createElement('label');
+  yearLabel.textContent = getLocalizedText(structure.commonText.year);
+  yearLabel.appendChild(yearInput);
+
+  const generateBtn = document.createElement('button');
+  generateBtn.className = 'add-btn';
+  generateBtn.textContent = getLocalizedText(structure.commonText.generateReport);
+  generateBtn.addEventListener('click', () =>
+    generateReport(reportKey, Number(yearInput.value), Number(monthSelect.value))
+  );
+
+  reportControls.appendChild(monthLabel);
+  reportControls.appendChild(yearLabel);
+  reportControls.appendChild(generateBtn);
+
+  generateReport(reportKey, Number(yearInput.value), Number(monthSelect.value));
+}
+
+async function generateReport(
+  reportKey: keyof typeof structure.reports,
+  year: number,
+  month: number
+): Promise<void> {
+  const report = structure.reports[reportKey];
+
+  const params = new URLSearchParams({
+    year: String(year),
+    month: String(month),
+    groupBy: report.groupBy.join(','),
+    dateField: report.dateField,
+  });
+  if (report.measure) {
+    params.set('measure', report.measure);
+  }
+
+  const thead = reportTable.querySelector('thead')!;
+  const tbody = reportTable.querySelector('tbody')!;
+  thead.innerHTML = '';
+  tbody.innerHTML = '';
+  reportMessage.hidden = true;
+
+  try {
+    const response = await apiFetch(`/reports/${report.table}/monthly?${params.toString()}`);
+
+    if (!response.ok) {
+      reportMessage.textContent = await errorMessage(response);
+      reportMessage.hidden = false;
+      return;
+    }
+
+    const json: ApiResponse = await response.json();
+    const rows = ((json.data as { rows?: Record<string, unknown>[] })?.rows ?? []);
+
+    if (rows.length === 0) {
+      reportMessage.textContent = getLocalizedText(structure.commonText.noReportData);
+      reportMessage.hidden = false;
+      return;
+    }
+
+    const reportColumns = report.columns as Record<string, LocalizedText>;
+    const columnKeys = Object.keys(reportColumns);
+
+    const headerRow = document.createElement('tr');
+    columnKeys.forEach((columnKey) => {
+      const th = document.createElement('th');
+      th.textContent = getLocalizedText(reportColumns[columnKey]);
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+
+    rows.forEach((row) => {
+      const tr = document.createElement('tr');
+      columnKeys.forEach((columnKey) => {
+        const td = document.createElement('td');
+        td.textContent = String(row[columnKey] ?? '');
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  } catch (error) {
+    reportMessage.textContent = getLocalizedText(structure.commonText.errorSaving);
+    reportMessage.hidden = false;
+    console.error('Error generating report:', error);
+  }
+}
+
 function resetStateForTable(tableKey: TableKey): void {
   currentState = {
     page: 1,
@@ -625,6 +783,11 @@ function resetStateForTable(tableKey: TableKey): void {
 }
 
 function showSection(section: TableKey, pushState = true): void {
+  // Switching to a table view: show records and hide the report view.
+  recordsSection.style.display = '';
+  reportSection.style.display = 'none';
+  Object.values(reportNavButtons).forEach((button) => button.classList.remove('active'));
+
   // Leaving any detail drill-down: restore the normal filter UI.
   detailContext = null;
   detailBar.style.display = 'none';

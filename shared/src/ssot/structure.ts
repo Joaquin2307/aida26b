@@ -1,4 +1,4 @@
-import { TableStructure, Role, TableAction } from '../types/types';
+import { TableStructure, Role, TableAction, ReportDef } from '../types/types';
 
 type LocalizedText = {
   es: string;
@@ -441,12 +441,39 @@ export const structure = {
     next: { es: 'Siguiente', en: 'Next' },
     filterPlaceholder: { es: 'Filtrar...', en: 'Filter...' },
 
+    // Reports
+    month: { es: 'Mes', en: 'Month' },
+    year: { es: 'Año', en: 'Year' },
+    generateReport: { es: 'Generar reporte', en: 'Generate report' },
+    noReportData: {
+      es: 'Sin datos para el período seleccionado',
+      en: 'No data for the selected period',
+    },
+
     // Delete confirmation
     deleteConfirm: {
       es: '¿Está seguro de que desea eliminar este',
       en: 'Are you sure you want to delete this',
     },
   } satisfies Record<string, LocalizedText>,
+
+  // Declarative monthly reports, rendered generically by the frontend and served
+  // by GET /api/reports/:table/monthly.
+  reports: {
+    proveedores_mensual: {
+      title: { es: 'Reporte mensual de proveedores', en: 'Monthly providers report' },
+      table: 'comprobantes',
+      groupBy: ['cuit', 'proveedor_nombre'],
+      dateField: 'fecha',
+      measure: 'total',
+      columns: {
+        cuit: { es: 'CUIT', en: 'Tax ID' },
+        proveedor_nombre: { es: 'Proveedor', en: 'Provider' },
+        record_count: { es: 'Comprobantes', en: 'Vouchers' },
+        total: { es: 'Total', en: 'Total' },
+      },
+    },
+  } satisfies Record<string, ReportDef>,
 };
 
 // -----------------------------------------------------------------------------
