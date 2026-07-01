@@ -109,7 +109,10 @@ type ReportDef = {
   groupBy: string[];      // columns to group rows by
   dateField: string;      // date column used to select the month
   measure?: string;       // optional numeric column to sum (omit for count only)
-  filters?: string[];     // columns exposed as user-selectable filters (filter_<col>)
+  // Columns exposed as user-selectable filter dropdowns (filter_<col>). Only
+  // discrete-value columns (enum options or foreign keys) render options; a
+  // free-text or numeric column would show an empty dropdown.
+  filters?: string[];
   columns: Record<string, LocalizedText>; // result column -> bilingual header
 };
 
