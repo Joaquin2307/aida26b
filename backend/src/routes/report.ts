@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 import { structure } from '../../../shared/src/ssot/structure';
 import type { TableKey } from '../../../shared/src/types/types';
 
-import { getBaseSelectQuery, getListFilterConfig } from './get';
+import { getBaseSelectQuery, getListFilterConfig, buildFilterConditions } from './get';
 import {
   sendErrorMessage,
   sendInvalidInstanceMessage,
@@ -49,7 +49,8 @@ export async function getMonthlyReportHandler(
 
   // Valid column names for this table (base columns + derived ones). Used as an
   // allow-list so the column names interpolated below can never be injected.
-  const validColumns = Object.keys(getListFilterConfig(tableName));
+  const filterConfig = getListFilterConfig(tableName);
+  const validColumns = Object.keys(filterConfig);
 
   const groupBy = String(req.query.groupBy ?? '')
     .split(',')
@@ -75,17 +76,23 @@ export async function getMonthlyReportHandler(
   const measureSelect = measure ? `, COALESCE(SUM(base."${measure}"), 0) AS total` : '';
   const orderBy = measure ? 'total DESC' : 'record_count DESC';
 
+  // Optional filters via the shared `filter_<column>` convention. Placeholders
+  // start at $3 because $1/$2 are the year/month of the date range above.
+  const { conditions, values: filterValues } = buildFilterConditions(req.query, filterConfig, 3);
+  const filterClause = conditions.length > 0 ? `AND (${conditions.join(' AND ')})` : '';
+
   const query = `
     SELECT ${groupColumns}, COUNT(*)::int AS record_count${measureSelect}
     FROM (${getBaseSelectQuery(tableName)}) AS base
     WHERE base."${dateField}" >= make_date($1, $2, 1)
       AND base."${dateField}" < (make_date($1, $2, 1) + interval '1 month')
+      ${filterClause}
     GROUP BY ${groupColumns}
     ORDER BY ${orderBy}
   `;
 
   try {
-    const result = await pool.query(query, [year, month]);
+    const result = await pool.query(query, [year, month, ...filterValues]);
 
     return res.json({
       success: true,

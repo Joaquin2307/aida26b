@@ -51,16 +51,19 @@ export async function getHandler(
 }
 
 /** Query builder used by list/table views. */
-export function buildListQuery(
-  tableNameOrCTE: string,
+// Builds parameterized SQL conditions from `filter_<column>=value` query params.
+// Each column is validated against `filterConfig` (the allow-list) and its value
+// goes in as a placeholder, so neither the column nor the value can be injected.
+// `startIndex` is the first free placeholder ($n); `nextIndex` reports the next
+// free one so the caller can keep numbering its own params (LIMIT/OFFSET, ...).
+export function buildFilterConditions(
   query: express.Request["query"],
   filterConfig: Record<string, ColumnDef>,
-  defaultSort: string | string[]
-) {
+  startIndex: number
+): { conditions: string[]; values: unknown[]; nextIndex: number } {
   const conditions: string[] = [];
   const values: unknown[] = [];
-  let paramIndex = 1;
-  const allowedColumns = Object.keys(filterConfig);
+  let paramIndex = startIndex;
 
   for (const [key, rawValue] of Object.entries(query)) {
     if (!key.startsWith("filter_") || rawValue == null || rawValue === "") {
@@ -168,6 +171,23 @@ export function buildListQuery(
       }
     }
   }
+
+  return { conditions, values, nextIndex: paramIndex };
+}
+
+export function buildListQuery(
+  tableNameOrCTE: string,
+  query: express.Request["query"],
+  filterConfig: Record<string, ColumnDef>,
+  defaultSort: string | string[]
+) {
+  const allowedColumns = Object.keys(filterConfig);
+  const { conditions, values, nextIndex } = buildFilterConditions(
+    query,
+    filterConfig,
+    1
+  );
+  const paramIndex = nextIndex;
 
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
