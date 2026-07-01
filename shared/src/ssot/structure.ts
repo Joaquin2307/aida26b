@@ -473,6 +473,19 @@ export const structure = {
         total: { es: 'Total', en: 'Total' },
       },
     },
+    balance_proveedor: {
+      title: { es: 'Balance mensual por estado', en: 'Monthly balance by status' },
+      table: 'comprobantes',
+      groupBy: ['estado'],
+      dateField: 'fecha',
+      measure: 'total',
+      filters: ['cuit'],
+      columns: {
+        estado: { es: 'Estado', en: 'Status' },
+        record_count: { es: 'Comprobantes', en: 'Vouchers' },
+        total: { es: 'Total', en: 'Total' },
+      },
+    },
   } satisfies Record<string, ReportDef>,
 };
 
