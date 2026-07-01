@@ -89,17 +89,20 @@ export function buildFilterConditions(
       const negated = strVal.startsWith("!");
       const actualVal = negated ? strVal.slice(1) : strVal;
 
-      if (config.type === "string" && !config.options) {
-        conditions.push(
-          `"${fieldName}"::text ${negated ? "NOT " : ""}ILIKE $${paramIndex}`
-        );
-        values.push(`%${actualVal}%`);
-        paramIndex++;
-      } else if (config.options) {
+      if (config.options || config.foreignKey) {
+        // Discrete-value columns (enums and foreign keys) match exactly, since
+        // callers pick a concrete value from a dropdown.
         conditions.push(
           `"${fieldName}" ${negated ? "!=" : "="} $${paramIndex}`
         );
         values.push(actualVal);
+        paramIndex++;
+      } else if (config.type === "string") {
+        // Free-text columns match as a case-insensitive substring.
+        conditions.push(
+          `"${fieldName}"::text ${negated ? "NOT " : ""}ILIKE $${paramIndex}`
+        );
+        values.push(`%${actualVal}%`);
         paramIndex++;
       } else if (config.type === "number") {
         const commaIdx = actualVal.indexOf(",");
@@ -182,12 +185,11 @@ export function buildListQuery(
   defaultSort: string | string[]
 ) {
   const allowedColumns = Object.keys(filterConfig);
-  const { conditions, values, nextIndex } = buildFilterConditions(
+  const { conditions, values, nextIndex: paramIndex } = buildFilterConditions(
     query,
     filterConfig,
     1
   );
-  const paramIndex = nextIndex;
 
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

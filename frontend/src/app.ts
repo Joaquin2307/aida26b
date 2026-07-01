@@ -745,16 +745,9 @@ function buildReportFilter(
   } else if (column.foreignKey) {
     const foreignKey = column.foreignKey;
     fetchRows(`/${foreignKey.table}?page=1`)
-      .then((rows) =>
-        addOptions(
-          (rows as Record<string, unknown>[]).map((row) => {
-            const value = String(row[foreignKey.valueField] ?? '');
-            return { value, label: `${value} - ${getForeignKeyLabel(row, foreignKey)}` };
-          })
-        )
-      )
+      .then((rows) => addOptions(rowsToFkOptions(rows, foreignKey)))
       .catch((error) => {
-        reportMessage.textContent = getLocalizedText(structure.commonText.errorSaving);
+        reportMessage.textContent = getLocalizedText(structure.commonText.errorLoadingData);
         reportMessage.hidden = false;
         console.error(`Error loading filter options for ${field}:`, error);
       });
@@ -1721,14 +1714,13 @@ function getForeignKeyLabel(row: Record<string, unknown>, foreignKey: ForeignKey
   return String(row[foreignKey.valueField] ?? '');
 }
 
-async function loadDefaultOptions(column: ColumnDef): Promise<void> {
-  const foreignKey = column.foreignKey;
-
-  if (!foreignKey || foreignKey.dependsOn) return;
-
-  const rows = await fetchRows(`/${foreignKey.table}?page=1`);
-
-  column.options = rows.map((row) => {
+// Maps foreign-key rows to select options ({ value, label }), so the option
+// shape lives in one place (used by table forms and report filters alike).
+function rowsToFkOptions(
+  rows: unknown[],
+  foreignKey: ForeignKeyDef
+): { value: string; label: string }[] {
+  return rows.map((row) => {
     const record = row as Record<string, unknown>;
     const value = String(record[foreignKey.valueField] ?? '');
 
@@ -1736,7 +1728,17 @@ async function loadDefaultOptions(column: ColumnDef): Promise<void> {
       value,
       label: `${value} - ${getForeignKeyLabel(record, foreignKey)}`,
     };
-  }) as any;
+  });
+}
+
+async function loadDefaultOptions(column: ColumnDef): Promise<void> {
+  const foreignKey = column.foreignKey;
+
+  if (!foreignKey || foreignKey.dependsOn) return;
+
+  const rows = await fetchRows(`/${foreignKey.table}?page=1`);
+
+  column.options = rowsToFkOptions(rows, foreignKey) as any;
 }
 
 function setupDependentSelects<K extends TableKey>(

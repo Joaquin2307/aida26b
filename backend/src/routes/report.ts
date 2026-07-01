@@ -76,8 +76,10 @@ export async function getMonthlyReportHandler(
   const measureSelect = measure ? `, COALESCE(SUM(base."${measure}"), 0) AS total` : '';
   const orderBy = measure ? 'total DESC' : 'record_count DESC';
 
-  // Optional filters via the shared `filter_<column>` convention. Placeholders
-  // start at $3 because $1/$2 are the year/month of the date range above.
+  // Optional filters via the shared `filter_<column>` convention. Like the list
+  // endpoint, any valid column of the table may be filtered (the ReportDef
+  // `filters` array only controls which dropdowns the frontend renders).
+  // Placeholders start at $3 because $1/$2 are the year/month range above.
   const { conditions, values: filterValues } = buildFilterConditions(req.query, filterConfig, 3);
   const filterClause = conditions.length > 0 ? `AND (${conditions.join(' AND ')})` : '';
 

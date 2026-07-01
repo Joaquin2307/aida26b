@@ -4,7 +4,7 @@ import http from 'node:http';
 import { test } from 'vitest';
 import { app, pool } from '../src/server';
 import { hashPassword } from '../src/auth';
-import { canRoleDo } from '../../shared/src/ssot/structure';
+import { canRoleDo, structure } from '../../shared/src/ssot/structure';
 
 class FakeDb {
   constructor(users) {
@@ -83,7 +83,9 @@ class FakeDb {
     }
     // Generic monthly report aggregation (SELECT ... FROM (base) ...). Matched
     // before the generic proveedores branch below, which also matches a table name.
+    // Captures the query so tests can assert on the generated SQL and params.
     if (sql.startsWith('SELECT base.')) {
+      this.lastReportQuery = { sql, params };
       return {
         rows: [
           { cuit: '20-11223344-5', proveedor_nombre: 'Servicios Pampa', record_count: 2, total: '15000.00' },
@@ -420,6 +422,46 @@ test('generic monthly report aggregates a table for any authenticated user', asy
     assert.ok(Array.isArray(res.body.data.rows));
     assert.equal(res.body.data.rows[0].cuit, '20-11223344-5');
     assert.equal(res.body.data.rows[0].total, '15000.00');
+  });
+});
+
+test('monthly report passes filter_<col> through as an exact-match condition', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'reader', 'readerpass');
+    const res = await request(
+      baseUrl,
+      '/api/reports/comprobantes/monthly?year=2026&month=5&groupBy=estado&dateField=fecha&measure=total&filter_cuit=20-11223344-5',
+      { cookie }
+    );
+    assert.equal(res.status, 200);
+
+    // cuit is a foreign-key column, so the filter must be exact equality (not
+    // ILIKE), numbered after the year/month placeholders, with its value bound.
+    assert.ok(db.lastReportQuery.sql.includes('"cuit" = $3'));
+    assert.deepEqual(db.lastReportQuery.params, [2026, 5, '20-11223344-5']);
+  });
+});
+
+test('balance_proveedor report as declared in the SSOT works end-to-end', async () => {
+  const report = structure.reports.balance_proveedor;
+  const params = new URLSearchParams({
+    year: '2026',
+    month: '5',
+    groupBy: report.groupBy.join(','),
+    dateField: report.dateField,
+    measure: report.measure,
+    [`filter_${report.filters[0]}`]: '20-11223344-5',
+  });
+
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'reader', 'readerpass');
+    const res = await request(baseUrl, `/api/reports/${report.table}/monthly?${params}`, { cookie });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.table, 'comprobantes');
+    assert.ok(db.lastReportQuery.sql.includes('GROUP BY base."estado"'));
+    assert.ok(db.lastReportQuery.params.includes('20-11223344-5'));
   });
 });
 
