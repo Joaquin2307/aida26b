@@ -51,16 +51,19 @@ export async function getHandler(
 }
 
 /** Query builder used by list/table views. */
-export function buildListQuery(
-  tableNameOrCTE: string,
+// Builds parameterized SQL conditions from `filter_<column>=value` query params.
+// Each column is validated against `filterConfig` (the allow-list) and its value
+// goes in as a placeholder, so neither the column nor the value can be injected.
+// `startIndex` is the first free placeholder ($n); `nextIndex` reports the next
+// free one so the caller can keep numbering its own params (LIMIT/OFFSET, ...).
+export function buildFilterConditions(
   query: express.Request["query"],
   filterConfig: Record<string, ColumnDef>,
-  defaultSort: string | string[]
-) {
+  startIndex: number
+): { conditions: string[]; values: unknown[]; nextIndex: number } {
   const conditions: string[] = [];
   const values: unknown[] = [];
-  let paramIndex = 1;
-  const allowedColumns = Object.keys(filterConfig);
+  let paramIndex = startIndex;
 
   for (const [key, rawValue] of Object.entries(query)) {
     if (!key.startsWith("filter_") || rawValue == null || rawValue === "") {
@@ -86,17 +89,20 @@ export function buildListQuery(
       const negated = strVal.startsWith("!");
       const actualVal = negated ? strVal.slice(1) : strVal;
 
-      if (config.type === "string" && !config.options) {
-        conditions.push(
-          `"${fieldName}"::text ${negated ? "NOT " : ""}ILIKE $${paramIndex}`
-        );
-        values.push(`%${actualVal}%`);
-        paramIndex++;
-      } else if (config.options) {
+      if (config.options || config.foreignKey) {
+        // Discrete-value columns (enums and foreign keys) match exactly, since
+        // callers pick a concrete value from a dropdown.
         conditions.push(
           `"${fieldName}" ${negated ? "!=" : "="} $${paramIndex}`
         );
         values.push(actualVal);
+        paramIndex++;
+      } else if (config.type === "string") {
+        // Free-text columns match as a case-insensitive substring.
+        conditions.push(
+          `"${fieldName}"::text ${negated ? "NOT " : ""}ILIKE $${paramIndex}`
+        );
+        values.push(`%${actualVal}%`);
         paramIndex++;
       } else if (config.type === "number") {
         const commaIdx = actualVal.indexOf(",");
@@ -168,6 +174,22 @@ export function buildListQuery(
       }
     }
   }
+
+  return { conditions, values, nextIndex: paramIndex };
+}
+
+export function buildListQuery(
+  tableNameOrCTE: string,
+  query: express.Request["query"],
+  filterConfig: Record<string, ColumnDef>,
+  defaultSort: string | string[]
+) {
+  const allowedColumns = Object.keys(filterConfig);
+  const { conditions, values, nextIndex: paramIndex } = buildFilterConditions(
+    query,
+    filterConfig,
+    1
+  );
 
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
