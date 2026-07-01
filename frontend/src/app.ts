@@ -12,6 +12,7 @@ import {
   TableRecordMap,
   RendererProps,
   RendererFunc,
+  ReportDef,
   Response as ApiResponse,
 } from '@shared/types/types';
 import { getPkFields } from '@shared/utils/utils';
@@ -616,6 +617,10 @@ function createTableNavButtons(): void {
   }
 }
 
+// Filter <select> elements of the current report view, keyed by column name, so
+// generateReport can read the chosen values.
+const reportFilterSelects: Record<string, HTMLSelectElement> = {};
+
 // One nav button per report declared in the SSOT (generic: any report shows up
 // here automatically), hidden when the user cannot read the underlying table.
 function createReportNavButtons(): void {
@@ -639,7 +644,7 @@ function createReportNavButtons(): void {
 // Renders a report view: month/year controls plus the result table. Generic —
 // it works for any ReportDef in the SSOT.
 function showReport(reportKey: keyof typeof structure.reports): void {
-  const report = structure.reports[reportKey];
+  const report: ReportDef = structure.reports[reportKey];
 
   recordsSection.style.display = 'none';
   reportSection.style.display = '';
@@ -656,6 +661,7 @@ function showReport(reportKey: keyof typeof structure.reports): void {
 
   // Month/year controls, defaulting to the current month.
   reportControls.innerHTML = '';
+  for (const key of Object.keys(reportFilterSelects)) delete reportFilterSelects[key];
   const now = new Date();
 
   const monthSelect = document.createElement('select');
@@ -681,18 +687,85 @@ function showReport(reportKey: keyof typeof structure.reports): void {
   yearLabel.textContent = getLocalizedText(structure.commonText.year);
   yearLabel.appendChild(yearInput);
 
+  const run = () =>
+    generateReport(reportKey, Number(yearInput.value), Number(monthSelect.value));
+
   const generateBtn = document.createElement('button');
   generateBtn.className = 'add-btn';
   generateBtn.textContent = getLocalizedText(structure.commonText.generateReport);
-  generateBtn.addEventListener('click', () =>
-    generateReport(reportKey, Number(yearInput.value), Number(monthSelect.value))
-  );
+  generateBtn.addEventListener('click', run);
 
   reportControls.appendChild(monthLabel);
   reportControls.appendChild(yearLabel);
+
+  // One <select> per declared filter, driven by the SSOT column metadata.
+  for (const field of report.filters ?? []) {
+    reportControls.appendChild(buildReportFilter(report.table as TableKey, field, run));
+  }
+
   reportControls.appendChild(generateBtn);
 
-  generateReport(reportKey, Number(yearInput.value), Number(monthSelect.value));
+  run();
+}
+
+// Builds a labeled <select> for a report filter, deriving its options from the
+// SSOT column: a foreign key loads its rows, an enum uses its declared options.
+// The blank first option means "no filter". Options load asynchronously; a
+// failure shows in the report message area instead of breaking the view.
+function buildReportFilter(
+  tableKey: TableKey,
+  field: string,
+  onChange: () => void
+): HTMLLabelElement {
+  const column = (structure.tables[tableKey].columns as Record<string, ColumnDef>)[field];
+
+  const select = document.createElement('select');
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = '--';
+  select.appendChild(blank);
+  select.addEventListener('change', onChange);
+
+  const addOptions = (options: { value: string; label: string }[]) => {
+    for (const option of options) {
+      const el = document.createElement('option');
+      el.value = option.value;
+      el.textContent = option.label;
+      select.appendChild(el);
+    }
+  };
+
+  if (column.options) {
+    addOptions(
+      column.options.map((option) => ({
+        value: option.value,
+        label: getLocalizedText(option.label as LocalizedText | string),
+      }))
+    );
+  } else if (column.foreignKey) {
+    const foreignKey = column.foreignKey;
+    fetchRows(`/${foreignKey.table}?page=1`)
+      .then((rows) =>
+        addOptions(
+          (rows as Record<string, unknown>[]).map((row) => {
+            const value = String(row[foreignKey.valueField] ?? '');
+            return { value, label: `${value} - ${getForeignKeyLabel(row, foreignKey)}` };
+          })
+        )
+      )
+      .catch((error) => {
+        reportMessage.textContent = getLocalizedText(structure.commonText.errorSaving);
+        reportMessage.hidden = false;
+        console.error(`Error loading filter options for ${field}:`, error);
+      });
+  }
+
+  const label = document.createElement('label');
+  label.textContent = getLocalizedText((column.label ?? field) as LocalizedText | string);
+  label.appendChild(select);
+
+  reportFilterSelects[field] = select;
+  return label;
 }
 
 async function generateReport(
@@ -700,7 +773,7 @@ async function generateReport(
   year: number,
   month: number
 ): Promise<void> {
-  const report = structure.reports[reportKey];
+  const report: ReportDef = structure.reports[reportKey];
 
   const params = new URLSearchParams({
     year: String(year),
@@ -710,6 +783,12 @@ async function generateReport(
   });
   if (report.measure) {
     params.set('measure', report.measure);
+  }
+  for (const field of report.filters ?? []) {
+    const value = reportFilterSelects[field]?.value;
+    if (value) {
+      params.append(`filter_${field}`, value);
+    }
   }
 
   const thead = reportTable.querySelector('thead')!;
