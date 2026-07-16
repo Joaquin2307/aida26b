@@ -1,7 +1,7 @@
 {
-  "name": "faculty-management-backend",
+  "name": "comprobantes-management-backend",
   "version": "1.0.0",
-  "description": "Backend for Faculty Student Management System",
+  "description": "Backend for the Comprobantes Management System",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",

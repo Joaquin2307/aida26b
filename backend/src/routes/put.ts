@@ -2,11 +2,12 @@ import express from 'express';
 import { Pool } from 'pg';
 
 import { structure } from '../../../shared/src/ssot/structure';
-import type { TableKey, Response } from '../../../shared/src/types/types';
+import type { TableKey, Response, ColumnDef } from '../../../shared/src/types/types';
 import { getPkFields } from '../../../shared/src/utils/utils';
 
 import {
   getEntityName,
+  isKnownTable,
   getNotDerivableFields,
   tryQuery,
   columnNamesEqualsNumber,
@@ -56,8 +57,14 @@ export async function putHandler(
     (pkField) => (validatedPk.data as Record<string, unknown>)[pkField]
   );
 
+  // Columns flagged readonlyOnEdit in the SSOT (e.g. a voucher's cuit) must not
+  // change on update. The frontend disables their inputs; enforce the same rule
+  // here so the shared declaration is applied on both sides, not just the client.
+  const columns = structure.tables[tableName].columns as Record<string, ColumnDef>;
+
   const fieldsToUpdate = getNotDerivableFields(tableName).filter(
-    (fieldName) => !pkFields.includes(fieldName)
+    (fieldName) =>
+      !pkFields.includes(fieldName) && !columns[fieldName]?.readonlyOnEdit
   );
 
   if (fieldsToUpdate.length === 0) {
@@ -110,8 +117,4 @@ export async function putHandler(
     'updated',
     202
   );
-}
-
-function isKnownTable(tableName: string): tableName is TableKey {
-  return Object.prototype.hasOwnProperty.call(structure.tables, tableName);
 }

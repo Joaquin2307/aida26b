@@ -68,7 +68,6 @@ class FakeDb {
         role: sql.includes("'reader'") ? 'reader' : params[4],
         is_active: true,
         must_change_password: true,
-        student_numero_libreta: sql.includes('student_numero_libreta') ? params[0] : null,
       };
       this.users.push(user);
       return { rows: [publicRow(user)] };
@@ -443,14 +442,15 @@ test('monthly report passes filter_<col> through as an exact-match condition', a
   });
 });
 
-test('balance_proveedor report as declared in the SSOT works end-to-end', async () => {
-  const report = structure.reports.balance_proveedor;
+test('the "estado" view of the monthly report resolves groupBy from the SSOT end-to-end', async () => {
+  const report = structure.reports.comprobantes_mensual;
+  // The server resolves groupBy/dateField/measure from the declared report/view,
+  // so the client only names which report and view it wants.
   const params = new URLSearchParams({
     year: '2026',
     month: '5',
-    groupBy: report.groupBy.join(','),
-    dateField: report.dateField,
-    measure: report.measure,
+    report: 'comprobantes_mensual',
+    view: 'estado',
     [`filter_${report.filters[0]}`]: '20-11223344-5',
   });
 

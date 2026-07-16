@@ -1,11 +1,13 @@
 import express from 'express';
 import { Pool } from 'pg';
 
-import { structure } from '../../../shared/src/ssot/structure';
-import type { TableKey, ColumnDef } from '../../../shared/src/types/types';
+import { structure, canRoleDo } from '../../../shared/src/ssot/structure';
+import type { TableKey, ColumnDef, Role } from '../../../shared/src/types/types';
+import { getPkFields } from '../../../shared/src/utils/utils';
 
 import {
   getEntityName,
+  isKnownTable,
   getNotDerivableFields,
   formatTableColumnsForQuery,
 } from '../helpers';
@@ -18,10 +20,6 @@ import {
 } from '../status_messages';
 
 import { validateFullObject, sendErrorsIfInvalid } from '../validation/validate';
-
-function isKnownTable(tableName: string): tableName is TableKey {
-  return Object.prototype.hasOwnProperty.call(structure.tables, tableName);
-}
 
 // POST /api/:tableName/with-items   body: { record: {...}, items: [{...}] }
 //
@@ -65,23 +63,46 @@ export async function postWithItemsHandler(
     return sendInvalidInstanceMessage(res, `${parentTable} has no detail table`);
   }
 
-  // Validate every item up front; the link field (child column that references
-  // the parent) is filled from the parent's primary key value.
+  // A parent with a detail table is created together with its items; requiring
+  // at least one keeps the same rule the frontend enforces on both sides.
+  if (childTable && items.length === 0) {
+    return sendInvalidInstanceMessage(res, `${parentTable} requires at least one item`);
+  }
+
+  // The generic parent-access check (middleware) only covers the parent table.
+  // The detail rows belong to the child table, which may declare a stricter
+  // `access`, so authorize the child's create action too before inserting items.
+  if (childTable && items.length > 0) {
+    const role = (req as express.Request & { user?: { role?: Role } }).user?.role;
+
+    if (role && !canRoleDo(role, childTable, 'create')) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+  }
+
+  // Validate every item up front; the link field(s) (child columns that
+  // reference the parent) are filled from the parent's primary key value(s), so
+  // a composite parent key is linked correctly, not just a single-column one.
   const validatedItems: Record<string, unknown>[] = [];
 
   if (childTable) {
     const childColumns = structure.tables[childTable].columns as Record<string, ColumnDef>;
-    const parentPk = String(structure.tables[parentTable].pk);
-    const linkField =
-      Object.keys(childColumns).find(
-        (field) => childColumns[field].foreignKey?.table === parentTable
-      ) ?? parentPk;
-    const linkValue = parentData[parentPk];
+
+    const linkAssignments: Record<string, unknown> = {};
+    for (const pkField of getPkFields(parentTable)) {
+      const linkField =
+        Object.keys(childColumns).find(
+          (field) =>
+            childColumns[field].foreignKey?.table === parentTable &&
+            (childColumns[field].foreignKey?.valueField ?? pkField) === pkField
+        ) ?? pkField;
+      linkAssignments[linkField] = parentData[pkField];
+    }
 
     for (const item of items) {
       const validatedItem = validateFullObject(childTable, {
         ...item,
-        [linkField]: linkValue,
+        ...linkAssignments,
       });
       if (sendErrorsIfInvalid(res, validatedItem)) {
         return;

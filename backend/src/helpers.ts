@@ -2,8 +2,23 @@ import type { TableKey, Response, ColumnDef, TableStructure }  from '../../share
 import      { structure } from '../../shared/src/ssot/structure';
 import type { Pool }      from 'pg';
 
+// User-facing entity name (used in status messages), taken from the SSOT uiName.
 function getEntityName(table: TableKey): string {
   return String(structure.tables[table].uiName.en);
+}
+
+// Stable SQL alias for a table. Derived from the table name (already a valid SQL
+// identifier), never from uiName — a bilingual UI label must not double as a SQL
+// identifier. Used to alias FROM/JOIN targets and to resolve derivable-column
+// placeholders ({{self}} / {{origin}}).
+function getTableAlias(table: TableKey): string {
+  return String(table);
+}
+
+// Whether `tableName` is a table declared in the SSOT. Shared by every route so
+// the check lives in one place instead of being copied per handler.
+function isKnownTable(tableName: string): tableName is TableKey {
+  return Object.prototype.hasOwnProperty.call(structure.tables, tableName);
 }
 
 async function tryQuery(pool: Pool, queryStatement: string, queryArguments?: any): Promise<Response>{
@@ -39,11 +54,6 @@ function getReferencedRelations(tableName: TableKey): TableKey[]{
   return (Array.isArray(refs) ? refs : []) as TableKey[];
 }
 
-function getRequiredFields(tableName: TableKey){
-  const tableColumns: Record<string, ColumnDef> = structure.tables[tableName].columns;
-  return Object.entries(tableColumns).filter(([fieldName, column]) => column.required);
-}
-
 function formatTableColumnsForQuery(fieldsNames: string[], from: number = 1): string[]{
   let tupleWithReplaceParameters = '';
   for (let columnsCount = from; columnsCount <= fieldsNames.length; columnsCount++){
@@ -54,4 +64,4 @@ function formatTableColumnsForQuery(fieldsNames: string[], from: number = 1): st
   return [tupleContent, tupleWithReplaceParameters];
 }
 
-export { getEntityName, tryQuery, columnNamesEqualsNumber, getNotDerivableFields, getRequiredFields, formatTableColumnsForQuery, getReferencedRelations, getDerivableFields };
+export { getEntityName, getTableAlias, isKnownTable, tryQuery, columnNamesEqualsNumber, getNotDerivableFields, formatTableColumnsForQuery, getReferencedRelations, getDerivableFields };

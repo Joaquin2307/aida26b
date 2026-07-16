@@ -184,7 +184,7 @@ export const structure = {
           editable: false,
           derivable: {
             originTable: 'proveedores',
-            sqlGenerationStatement: `entityName.razon_social`,
+            sqlGenerationStatement: `{{origin}}.razon_social`,
           },
         },
 
@@ -205,7 +205,7 @@ export const structure = {
           editable: false,
           derivable: {
             originTable: 'comprobantes',
-            sqlGenerationStatement: `(SELECT COALESCE(SUM(dc.cantidad * art.precio_unitario), 0) FROM detalle_comprobante dc JOIN articulos art ON art.codigo = dc.codigo WHERE dc.numero = entityName.numero)`,
+            sqlGenerationStatement: `(SELECT COALESCE(SUM(dc.cantidad * art.precio_unitario), 0) FROM detalle_comprobante dc JOIN articulos art ON art.codigo = dc.codigo WHERE dc.numero = {{self}}.numero)`,
           },
         },
 
@@ -270,7 +270,7 @@ export const structure = {
           editable: false,
           derivable: {
             originTable: 'articulos',
-            sqlGenerationStatement: `entityName.descripcion`,
+            sqlGenerationStatement: `{{origin}}.descripcion`,
           },
         },
 
@@ -280,7 +280,7 @@ export const structure = {
           editable: false,
           derivable: {
             originTable: 'articulos',
-            sqlGenerationStatement: `entityName.precio_unitario`,
+            sqlGenerationStatement: `{{origin}}.precio_unitario`,
           },
         },
 
@@ -301,7 +301,7 @@ export const structure = {
           editable: false,
           derivable: {
             originTable: 'articulos',
-            sqlGenerationStatement: `entityName.precio_unitario * Item.cantidad`,
+            sqlGenerationStatement: `{{origin}}.precio_unitario * {{self}}.cantidad`,
           },
         },
       },
@@ -383,9 +383,11 @@ export const structure = {
     currentPassword: { es: 'Contraseña actual', en: 'Current Password' },
     newPassword: { es: 'Nueva contraseña', en: 'New Password' },
     logout: { es: 'Salir', en: 'Logout' },
-    addProfessor: { es: 'Agregar Profesor', en: 'Add Professor' },
-    addAdmin: { es: 'Agregar Admin', en: 'Add Admin' },
-    added: { es: 'agregado', en: 'added' },
+    accept: { es: 'Aceptar', en: 'Accept' },
+    clickToSort: { es: 'Clic para ordenar', en: 'Click to sort' },
+    removeFilter: { es: 'Quitar filtro', en: 'Remove filter' },
+    minPlaceholder: { es: 'Mín', en: 'Min' },
+    maxPlaceholder: { es: 'Máx', en: 'Max' },
 
     // Auth / session messages
     sessionExpired: { es: 'La sesión expiró', en: 'Session expired' },
@@ -417,19 +419,10 @@ export const structure = {
     errorLoadingRecord: { es: 'Error cargando registro', en: 'Error loading record' },
 
     // User management
-    onlyAdminCanCreateUsers: { es: 'Solo admin puede crear usuarios', en: 'Only admin can create users' },
-    errorCreatingUser: { es: 'Error creando usuario', en: 'Error creating user' },
     noEditPermission: { es: 'No tenés permiso para editar', en: 'You do not have edit permission' },
-    studentAndUserCreated: { es: 'Alumno y usuario creados', en: 'Student and user created' },
-    userAdded: { es: 'Usuario agregado', en: 'User added' },
 
     // Form labels
-    initialPassword: { es: 'Contraseña inicial', en: 'Initial Password' },
     usernameLabel: { es: 'Usuario', en: 'Username' },
-    emailLabel: { es: 'Email', en: 'Email' },
-    professorRole: { es: 'Profesor', en: 'Professor' },
-    adminRole: { es: 'Admin', en: 'Admin' },
-    addUser: { es: 'Agregar usuario', en: 'Add user' },
 
     // Filters / pagination
     addFilter: { es: 'Agregar Filtro', en: 'Add Filter' },
@@ -498,11 +491,14 @@ export const structure = {
 // -----------------------------------------------------------------------------
 
 // Behavior for tables (or actions) that do not declare their own `access`.
+// Reads are open to every role; writes are denied to everyone but admins, so a
+// table that forgets to declare `access` fails closed (write access must be
+// granted explicitly in the SSOT) instead of silently allowing editors.
 const DEFAULT_ACCESS: Record<TableAction, Role[]> = {
   read: ['admin', 'editor', 'reader'],
-  create: ['admin', 'editor'],
-  update: ['admin', 'editor'],
-  delete: ['admin', 'editor'],
+  create: ['admin'],
+  update: ['admin'],
+  delete: ['admin'],
 };
 
 // Roles allowed to perform `action` on `tableKey`, falling back to defaults.

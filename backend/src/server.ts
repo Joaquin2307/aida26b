@@ -10,12 +10,7 @@ import * as auth from './auth';
 import { canRoleDo } from '../../shared/src/ssot/structure';
 import type { TableAction } from '../../shared/src/types/types';
 
-import { getHandler } from './routes/get';
-import { putHandler } from './routes/put';
-import { postHandler } from './routes/post';
-import { deleteHandler } from './routes/delete';
-import { postWithItemsHandler } from './routes/with_items';
-import { getMonthlyReportHandler } from './routes/report';
+import { registerApiRoutes } from './routes/register';
 
 // Load environment variables before reading process.env
 dotenv.config();
@@ -421,71 +416,14 @@ app.post(
   }
 );
 
-// Generic compound endpoint: create a parent row and its detail rows atomically
-// (driven by the SSOT `detailOf` relationship). Create access is checked against
-// the parent table named in the path.
-app.post(
-  '/api/:tableName/with-items',
+// Generic API surface (CRUD + with-items + monthly reports), wired through the
+// shared registerApiRoutes with auth + per-action RBAC. The with-items route
+// checks the parent's create access here and the child's inside the handler.
+registerApiRoutes(app, pool, (action) => [
   requireAuth,
   requirePasswordReady,
-  requireTableAccess('create'),
-  async (req, res) => {
-    return postWithItemsHandler(req, res, pool);
-  }
-);
-
-// Generic reporting: monthly aggregation over any SSOT table. Read access is
-// checked against the same table named in the path.
-app.get(
-  '/api/reports/:tableName/monthly',
-  requireAuth,
-  requirePasswordReady,
-  requireTableAccess('read'),
-  async (req, res) => {
-    return getMonthlyReportHandler(req, res, pool);
-  }
-);
-
-// Generic CRUD API routes (driven entirely by the SSOT structure)
-app.get(
-  '/api/:tableName',
-  requireAuth,
-  requirePasswordReady,
-  requireTableAccess('read'),
-  async (req, res) => {
-    return getHandler(req, res, pool);
-  }
-);
-
-app.post(
-  '/api/:tableName',
-  requireAuth,
-  requirePasswordReady,
-  requireTableAccess('create'),
-  async (req, res) => {
-    return postHandler(req, res, pool);
-  }
-);
-
-app.put(
-  '/api/:tableName',
-  requireAuth,
-  requirePasswordReady,
-  requireTableAccess('update'),
-  async (req, res) => {
-    return putHandler(req, res, pool);
-  }
-);
-
-app.delete(
-  '/api/:tableName',
-  requireAuth,
-  requirePasswordReady,
-  requireTableAccess('delete'),
-  async (req, res) => {
-    return deleteHandler(req, res, pool);
-  }
-);
+  requireTableAccess(action),
+]);
 
 // Resolve frontend static files directory
 let frontendDistPath = path.join(__dirname, '../../frontend/dist');

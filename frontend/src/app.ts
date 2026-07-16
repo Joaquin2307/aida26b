@@ -260,7 +260,7 @@ function showErrorMessage(message: string): void {
   dialogMessage.textContent = message;
 
   const closeButton = document.createElement('button');
-  closeButton.textContent = 'Aceptar';
+  closeButton.textContent = getLocalizedText(structure.commonText.accept);
   closeButton.addEventListener('click', () => {
     dialog.close();
     dialog.remove();
@@ -355,6 +355,35 @@ async function fetchRows(path: string): Promise<unknown[]> {
 
   const result = await response.json();
   return getRowsFromApiResult(result);
+}
+
+// Fetches every row of a table by walking the paginated list endpoint, so a
+// foreign-key <select> shows all options instead of only the first page. `query`
+// holds any extra filter params (without a leading `?`/`&`).
+async function fetchAllRows(table: string, query = ''): Promise<unknown[]> {
+  const all: unknown[] = [];
+  const suffix = query ? `&${query}` : '';
+
+  for (let page = 1; page <= 1000; page++) {
+    const response = await apiFetch(`/${table}?page=${page}${suffix}`);
+
+    if (!response.ok) {
+      throw new Error(await errorMessage(response));
+    }
+
+    const result = await response.json();
+    const rows = getRowsFromApiResult(result);
+    all.push(...rows);
+
+    const total = (result as { total?: unknown }).total;
+    const done =
+      rows.length === 0 ||
+      (typeof total === 'number' && all.length >= total);
+
+    if (done) break;
+  }
+
+  return all;
 }
 
 // -----------------------------------------------------------------------------
@@ -572,6 +601,7 @@ function setLocalizedElementText(id: string, text: LocalizedText | string): void
 function applyStaticLanguageToUI(): void {
   document.documentElement.lang = currentLanguage;
 
+  document.title = getLocalizedText(structure.commonText.appTitle);
   setLocalizedElementText('app-title', structure.commonText.appTitle);
   setLocalizedElementText('login-title', structure.commonText.login);
   setLocalizedElementText('login-username-label', structure.commonText.usernameLabel);
@@ -765,7 +795,7 @@ function buildReportFilter(
     );
   } else if (column.foreignKey) {
     const foreignKey = column.foreignKey;
-    fetchRows(`/${foreignKey.table}?page=1`)
+    fetchAllRows(foreignKey.table)
       .then((rows) => addOptions(rowsToFkOptions(rows, foreignKey)))
       .catch((error) => {
         reportMessage.textContent = getLocalizedText(structure.commonText.errorLoadingData);
@@ -788,18 +818,18 @@ async function generateReport(
   month: number
 ): Promise<void> {
   const report: ReportDef = structure.reports[reportKey];
-  const view =
-    report.views[reportViewSelect?.value ?? report.defaultView ?? Object.keys(report.views)[0]];
+  const viewKey =
+    reportViewSelect?.value ?? report.defaultView ?? Object.keys(report.views)[0];
+  const view = report.views[viewKey];
 
+  // Name the report and view; the server resolves groupBy/dateField/measure from
+  // the SSOT so the declaration stays the single source of truth.
   const params = new URLSearchParams({
     year: String(year),
     month: String(month),
-    groupBy: view.groupBy.join(','),
-    dateField: report.dateField,
+    report: String(reportKey),
+    view: viewKey,
   });
-  if (report.measure) {
-    params.set('measure', report.measure);
-  }
   for (const field of report.filters ?? []) {
     const value = reportFilterSelects[field]?.value;
     if (value) {
@@ -1111,7 +1141,7 @@ function renderAnyTable<K extends TableKey>(
 
     th.textContent = getLocalizedText(column.label as LocalizedText | string) || fieldName;
     th.className = 'sortable';
-    th.title = 'Click to sort';
+    th.title = getLocalizedText(structure.commonText.clickToSort);
 
     if (currentState.sort === fieldName) {
       th.classList.add(currentState.dir === 'desc' ? 'sorted-desc' : 'sorted-asc');
@@ -1322,7 +1352,7 @@ function createFilterControl(
 
     const minInput = document.createElement('input');
     minInput.type = 'number';
-    minInput.placeholder = 'Min';
+    minInput.placeholder = getLocalizedText(structure.commonText.minPlaceholder);
     minInput.value = entry.min ?? '';
     minInput.style.width = '80px';
     minInput.addEventListener('change', () => {
@@ -1335,7 +1365,7 @@ function createFilterControl(
 
     const maxInput = document.createElement('input');
     maxInput.type = 'number';
-    maxInput.placeholder = 'Max';
+    maxInput.placeholder = getLocalizedText(structure.commonText.maxPlaceholder);
     maxInput.value = entry.max ?? '';
     maxInput.style.width = '80px';
     maxInput.addEventListener('change', () => {
@@ -1556,7 +1586,7 @@ function renderFilters<K extends TableKey>(tableKey: K): void {
       const removeBtn = document.createElement('button');
       removeBtn.textContent = '✕';
       removeBtn.className = 'remove-filter-btn';
-      removeBtn.title = 'Remove filter';
+      removeBtn.title = getLocalizedText(structure.commonText.removeFilter);
       removeBtn.addEventListener('click', () => {
         currentState.filters[fieldName].splice(idx, 1);
 
@@ -1646,25 +1676,6 @@ function validateForm<K extends TableKey>(tableKey: K): boolean {
     .filter(([, column]) => column.editable !== false)
     .map(([fieldName, column]) => showFieldValidation(tableKey, fieldName, column))
     .every((message) => !message);
-}
-
-function appendPasswordField(form: HTMLFormElement, id: string, label: string): void {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'form-group';
-
-  const labelEl = document.createElement('label');
-  labelEl.htmlFor = id;
-  labelEl.textContent = label;
-  wrapper.appendChild(labelEl);
-
-  const input = document.createElement('input');
-  input.id = id;
-  input.type = 'password';
-  input.minLength = 8;
-  input.required = true;
-  wrapper.appendChild(input);
-
-  form.appendChild(wrapper);
 }
 
 async function renderFormField<K extends TableKey>(
@@ -1759,7 +1770,7 @@ async function loadDefaultOptions(column: ColumnDef): Promise<void> {
 
   if (!foreignKey || foreignKey.dependsOn) return;
 
-  const rows = await fetchRows(`/${foreignKey.table}?page=1`);
+  const rows = await fetchAllRows(foreignKey.table);
 
   column.options = rowsToFkOptions(rows, foreignKey) as any;
 }
@@ -1818,8 +1829,9 @@ async function loadDependentOptions<K extends TableKey>(
   if (!parentValue) return;
 
   try {
-    const rows = await fetchRows(
-      `/${foreignKey.table}?filter_${foreignKey.dependsOn.foreignField}=${encodeURIComponent(parentValue)}`
+    const rows = await fetchAllRows(
+      foreignKey.table,
+      `filter_${foreignKey.dependsOn.foreignField}=${encodeURIComponent(parentValue)}`
     );
 
     rows.forEach((row) => {
@@ -1915,95 +1927,6 @@ export function hideAnyForm(): void {
   formContainer.innerHTML = '';
 }
 
-function showUserForm(role: Exclude<Role, 'reader'>): void {
-  if (currentUser?.role !== 'admin') {
-    setMessage(getLocalizedText(structure.commonText.onlyAdminCanCreateUsers));
-    return;
-  }
-
-  const label =
-    role === 'editor'
-      ? getLocalizedText(structure.commonText.professorRole)
-      : getLocalizedText(structure.commonText.adminRole);
-
-  formContainer.innerHTML = '';
-
-  const form = document.createElement('form');
-
-  const title = document.createElement('h3');
-  title.textContent = `${getLocalizedText(structure.commonText.add)} ${label}`;
-  form.appendChild(title);
-
-  ['username', 'email'].forEach((field) => {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'form-group';
-
-    const labelEl = document.createElement('label');
-    labelEl.htmlFor = `user-${field}`;
-    labelEl.textContent = field === 'username' ? getLocalizedText(structure.commonText.usernameLabel) : getLocalizedText(structure.commonText.emailLabel);
-    wrapper.appendChild(labelEl);
-
-    const input = document.createElement('input');
-    input.id = `user-${field}`;
-    input.type = field === 'email' ? 'email' : 'text';
-    input.required = field === 'username';
-    wrapper.appendChild(input);
-
-    form.appendChild(wrapper);
-  });
-
-  appendPasswordField(form, 'user-password', getLocalizedText(structure.commonText.initialPassword));
-
-  const actionsDiv = document.createElement('div');
-  actionsDiv.className = 'form-actions';
-
-  const submitBtn = document.createElement('button');
-  submitBtn.type = 'submit';
-  submitBtn.textContent = getLocalizedText(structure.commonText.add);
-
-  const cancelBtn = document.createElement('button');
-  cancelBtn.type = 'button';
-  cancelBtn.className = 'cancel-btn';
-  cancelBtn.textContent = getLocalizedText(structure.commonText.cancel);
-  cancelBtn.addEventListener('click', hideAnyForm);
-
-  actionsDiv.appendChild(submitBtn);
-  actionsDiv.appendChild(cancelBtn);
-  form.appendChild(actionsDiv);
-
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-
-    const username = (document.getElementById('user-username') as HTMLInputElement).value.trim();
-    const email = (document.getElementById('user-email') as HTMLInputElement).value.trim();
-    const password = (document.getElementById('user-password') as HTMLInputElement).value;
-
-    try {
-      const response = await apiFetch('/admin/users', {
-        method: 'POST',
-        body: JSON.stringify({ username, email, password, role }),
-      });
-
-      if (!response.ok) {
-        return showErrorMessage(await errorMessage(response));
-      }
-
-      hideAnyForm();
-      setMessage(`${label} ${getLocalizedText(structure.commonText.added)}`);
-    } catch (error) {
-      const message = (error as Error).message;
-
-      if (message !== 'Authentication required' && message !== 'Forbidden') {
-        setMessage(getLocalizedText(structure.commonText.errorCreatingUser));
-        console.error('Error creating user:', error);
-      }
-    }
-  });
-
-  formContainer.appendChild(form);
-  formContainer.style.display = 'block';
-}
-
 type ItemsSection = {
   container: HTMLElement;
   collect: () => { fkValue: string; qty: number }[];
@@ -2013,6 +1936,30 @@ type ItemsSection = {
   fkField: string;
   qtyField: string;
 };
+
+// Given a detail table's columns and its FK target table, returns the FK-table
+// column the detail derives its unit price from: the column referenced by a
+// `{{origin}}.<col>` derivable whose origin is the FK table and whose target
+// column is numeric (e.g. detalle.precio_unitario ⇐ articulos.precio_unitario).
+// Returns null when the child declares no such column, so callers can degrade
+// gracefully instead of hardcoding a column name.
+function findFkUnitPriceField(
+  childCols: Record<string, ColumnDef>,
+  fkTable: string
+): string | null {
+  for (const column of Object.values(childCols)) {
+    const derivable = column.derivable;
+    if (!derivable || derivable.originTable !== fkTable) continue;
+
+    const match = derivable.sqlGenerationStatement.match(/^\{\{\s*origin\s*\}\}\.(\w+)$/);
+    if (!match) continue;
+
+    const originColumn = (structure.tables[fkTable as TableKey].columns as Record<string, ColumnDef>)[match[1]];
+    if (originColumn?.type === 'number') return match[1];
+  }
+
+  return null;
+}
 
 // Builds an inline, repeatable "line items" editor (article + quantity rows)
 // for a parent create form, driven by the child's detailOf relationship.
@@ -2034,11 +1981,15 @@ async function buildItemsSection<K extends TableKey>(
   )!;
   const fk = childCols[fkField].foreignKey!;
 
-  const articleRows = (await fetchRows(`/${fk.table}?page=1`)) as Record<string, unknown>[];
+  // Unit-price column of the FK table, derived from the SSOT (not hardcoded), so
+  // the live total preview mirrors the child's derived subtotal for any domain.
+  const priceField = findFkUnitPriceField(childCols, fk.table);
+
+  const articleRows = (await fetchAllRows(fk.table)) as Record<string, unknown>[];
   const priceByValue = new Map<string, number>();
   const options = articleRows.map((row) => {
     const value = String(row[fk.valueField] ?? '');
-    priceByValue.set(value, Number(row['precio_unitario'] ?? 0));
+    priceByValue.set(value, priceField ? Number(row[priceField] ?? 0) : 0);
     return { value, label: `${value} - ${getForeignKeyLabel(row, fk)}` };
   });
 
@@ -2333,7 +2284,7 @@ async function showAnyForm<K extends TableKey>(
         const responseJson: ApiResponse = await response.json();
 
         if (!responseJson.success) {
-          return showErrorMessage(responseJson.message ?? 'Error saving record');
+          return showErrorMessage(responseJson.message ?? getLocalizedText(structure.commonText.errorSaving));
         }
 
         hideAnyForm();
@@ -2354,7 +2305,7 @@ async function showAnyForm<K extends TableKey>(
       const responseJson: ApiResponse = await response.json();
 
       if (!responseJson.success) {
-        return showErrorMessage(responseJson.message ?? 'Error saving record');
+        return showErrorMessage(responseJson.message ?? getLocalizedText(structure.commonText.errorSaving));
       }
 
       hideAnyForm();
@@ -2417,7 +2368,7 @@ window.editRecord = async <K extends TableKey>(
     const responseAnswer: ApiResponse = await response.json();
 
     if (!responseAnswer.success) {
-      return showErrorMessage(responseAnswer.message ?? 'Error loading record');
+      return showErrorMessage(responseAnswer.message ?? getLocalizedText(structure.commonText.errorLoadingRecord));
     }
 
     const record = responseAnswer.data as TableRecordMap[K];
@@ -2465,7 +2416,7 @@ window.deleteRecord = async <K extends TableKey>(
     const responseAnswer: ApiResponse = await response.json();
 
     if (!responseAnswer.success) {
-      return showErrorMessage(responseAnswer.message ?? 'Error deleting record');
+      return showErrorMessage(responseAnswer.message ?? getLocalizedText(structure.commonText.errorDeleting));
     }
 
     showSuccessMessage(responseAnswer.message ?? '');

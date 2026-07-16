@@ -2,10 +2,45 @@ import { test, expect, type Page } from '@playwright/test';
 
 const LIMIT = 20;
 
+// The API requires an authenticated session, so the seed requests (and the
+// browser) log in first. Credentials come from the environment; the defaults
+// match a seed-admin whose password is already set (not pending a change).
+const ADMIN_USER = process.env.E2E_ADMIN_USER ?? 'admin';
+const ADMIN_PASS = process.env.E2E_ADMIN_PASS ?? 'adminpass';
+
+let sessionCookie = '';
+
+async function login(apiBase: string): Promise<string> {
+  const res = await fetch(`${apiBase}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: ADMIN_USER, password: ADMIN_PASS }),
+  });
+  if (!res.ok) {
+    throw new Error(`Login failed: HTTP ${res.status} for ${ADMIN_USER}`);
+  }
+  const setCookie = res.headers.get('set-cookie');
+  sessionCookie = setCookie ? setCookie.split(';')[0] : '';
+  return sessionCookie;
+}
+
+// Copies the API session cookie into the browser context so the app loads
+// straight into the shell instead of the login screen.
+async function setBrowserSession(page: Page, baseURL: string): Promise<void> {
+  const eq = sessionCookie.indexOf('=');
+  if (eq < 0) return;
+  await page.context().addCookies([
+    { name: sessionCookie.slice(0, eq), value: sessionCookie.slice(eq + 1), url: baseURL },
+  ]);
+}
+
 async function httpJson<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(sessionCookie ? { Cookie: sessionCookie } : {}),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
@@ -23,8 +58,6 @@ async function seedArticulos(apiBase: string, count: number, prefix: string): Pr
       codigo,
       descripcion: `E2E Pagination ${String(i).padStart(4, '0')}`,
       precio_unitario: 1000 + i,
-      unidad: 'unidad',
-      stock: i,
     };
     await httpJson('POST', `${apiBase}/articulos`, payload);
     created.push(codigo);
@@ -122,6 +155,9 @@ test.describe('Pagination', () => {
 
   test.beforeEach(async ({ page, baseURL }, testInfo) => {
     if (!baseURL) throw new Error('Missing baseURL');
+    await login(`${baseURL}/api`);
+    await setBrowserSession(page, baseURL);
+
     const shortTimestamp = Date.now().toString().slice(-5);
     const prefix = `e2e_${shortTimestamp}_${testInfo.parallelIndex}`;
 
@@ -198,8 +234,6 @@ test.describe('Pagination', () => {
         codigo,
         descripcion: 'E2E Filter Contains',
         precio_unitario: 1000 + idx,
-        unidad: 'unidad',
-        stock: idx,
       });
     }
     createdIds.push(exactId, prefixId, postfixId);
@@ -215,11 +249,13 @@ test.describe('Pagination', () => {
 
 test('rejects a provider with an invalid CUIT', async ({ baseURL }) => {
   if (!baseURL) throw new Error('Missing baseURL');
+  await login(`${baseURL}/api`);
 
   const res = await fetch(`${baseURL}/api/proveedores`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Cookie: sessionCookie,
     },
     body: JSON.stringify({
       cuit: 'not-a-cuit',
