@@ -77,7 +77,12 @@ h1 {
 
 #general-nav {
     display: flex;
-    justify-content: space-between;
+    gap: 12px;
+}
+
+/* Theme/language controls float right; table + report nav stay grouped left. */
+#menu-nav {
+    margin-left: auto;
 }
 
 .nav {

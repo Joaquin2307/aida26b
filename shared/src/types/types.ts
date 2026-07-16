@@ -103,17 +103,25 @@ type RendererFunc = <K extends TableKey>(props: RendererProps<K>) => HTMLElement
 
 // A monthly report definition (consumed by GET /api/reports/:table/monthly).
 // Declarative so the frontend can render any report generically from the SSOT.
+// A named grouping the user can switch between (e.g. by provider or by status).
+type ReportView = {
+  label: LocalizedText;
+  groupBy: string[];      // columns to group rows by
+  columns: Record<string, LocalizedText>; // result column -> bilingual header
+};
+
 type ReportDef = {
   title: LocalizedText;
   table: string;          // SSOT table to aggregate
-  groupBy: string[];      // columns to group rows by
   dateField: string;      // date column used to select the month
   measure?: string;       // optional numeric column to sum (omit for count only)
   // Columns exposed as user-selectable filter dropdowns (filter_<col>). Only
   // discrete-value columns (enum options or foreign keys) render options; a
   // free-text or numeric column would show an empty dropdown.
   filters?: string[];
-  columns: Record<string, LocalizedText>; // result column -> bilingual header
+  // Selectable groupings; the UI shows a "view by" picker and uses the active one.
+  views: Record<string, ReportView>;
+  defaultView?: string;   // key of the view shown initially
 };
 
-export type {TypeMap, MyTypeNames, ColumnValidator, ColumnDef, TableStructure, InferType, TableKey, TableRecordMap, Response, ForeignKeyDef, Language, LocalizedText, RendererProps, RendererFunc, Role, TableAction, TableAccess, ReportDef};
+export type {TypeMap, MyTypeNames, ColumnValidator, ColumnDef, TableStructure, InferType, TableKey, TableRecordMap, Response, ForeignKeyDef, Language, LocalizedText, RendererProps, RendererFunc, Role, TableAction, TableAccess, ReportDef, ReportView};

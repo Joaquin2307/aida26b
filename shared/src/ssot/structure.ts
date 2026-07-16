@@ -445,6 +445,7 @@ export const structure = {
     month: { es: 'Mes', en: 'Month' },
     year: { es: 'Año', en: 'Year' },
     generateReport: { es: 'Generar reporte', en: 'Generate report' },
+    viewBy: { es: 'Ver por', en: 'View by' },
     noReportData: {
       es: 'Sin datos para el período seleccionado',
       en: 'No data for the selected period',
@@ -460,30 +461,33 @@ export const structure = {
   // Declarative monthly reports, rendered generically by the frontend and served
   // by GET /api/reports/:table/monthly.
   reports: {
-    proveedores_mensual: {
-      title: { es: 'Reporte mensual de proveedores', en: 'Monthly providers report' },
+    comprobantes_mensual: {
+      title: { es: 'Reporte mensual de comprobantes', en: 'Monthly vouchers report' },
       table: 'comprobantes',
-      groupBy: ['cuit', 'proveedor_nombre'],
-      dateField: 'fecha',
-      measure: 'total',
-      columns: {
-        cuit: { es: 'CUIT', en: 'Tax ID' },
-        proveedor_nombre: { es: 'Proveedor', en: 'Provider' },
-        record_count: { es: 'Comprobantes', en: 'Vouchers' },
-        total: { es: 'Total', en: 'Total' },
-      },
-    },
-    balance_proveedor: {
-      title: { es: 'Balance mensual por estado', en: 'Monthly balance by status' },
-      table: 'comprobantes',
-      groupBy: ['estado'],
       dateField: 'fecha',
       measure: 'total',
       filters: ['cuit'],
-      columns: {
-        estado: { es: 'Estado', en: 'Status' },
-        record_count: { es: 'Comprobantes', en: 'Vouchers' },
-        total: { es: 'Total', en: 'Total' },
+      defaultView: 'proveedor',
+      views: {
+        proveedor: {
+          label: { es: 'Proveedor', en: 'Provider' },
+          groupBy: ['cuit', 'proveedor_nombre'],
+          columns: {
+            cuit: { es: 'CUIT', en: 'Tax ID' },
+            proveedor_nombre: { es: 'Proveedor', en: 'Provider' },
+            record_count: { es: 'Comprobantes', en: 'Vouchers' },
+            total: { es: 'Total', en: 'Total' },
+          },
+        },
+        estado: {
+          label: { es: 'Estado', en: 'Status' },
+          groupBy: ['estado'],
+          columns: {
+            estado: { es: 'Estado', en: 'Status' },
+            record_count: { es: 'Comprobantes', en: 'Vouchers' },
+            total: { es: 'Total', en: 'Total' },
+          },
+        },
       },
     },
   } satisfies Record<string, ReportDef>,

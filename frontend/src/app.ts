@@ -179,7 +179,8 @@ function showApp(user: AuthUser): void {
   passwordSection.style.display = 'none';
   appShell.style.display = 'block';
 
-  currentUserEl.textContent = `${user.username} (${user.role})`;
+  currentUserEl.textContent =
+    user.username === user.role ? user.username : `${user.username} (${user.role})`;
 
   // Rebuild nav so it reflects this user's read permissions.
   createTableNavButtons();
@@ -620,6 +621,8 @@ function createTableNavButtons(): void {
 // Filter <select> elements of the current report view, keyed by column name, so
 // generateReport can read the chosen values.
 const reportFilterSelects: Record<string, HTMLSelectElement> = {};
+// The "view by" <select> of the current report (which grouping is active).
+let reportViewSelect: HTMLSelectElement | null = null;
 
 // One nav button per report declared in the SSOT (generic: any report shows up
 // here automatically), hidden when the user cannot read the underlying table.
@@ -662,6 +665,7 @@ function showReport(reportKey: keyof typeof structure.reports): void {
   // Month/year controls, defaulting to the current month.
   reportControls.innerHTML = '';
   for (const key of Object.keys(reportFilterSelects)) delete reportFilterSelects[key];
+  reportViewSelect = null;
   const now = new Date();
 
   const monthSelect = document.createElement('select');
@@ -697,6 +701,23 @@ function showReport(reportKey: keyof typeof structure.reports): void {
 
   reportControls.appendChild(monthLabel);
   reportControls.appendChild(yearLabel);
+
+  // "View by" picker: one option per grouping declared in the ReportDef.
+  const viewSelect = document.createElement('select');
+  for (const [key, view] of Object.entries(report.views)) {
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = getLocalizedText(view.label);
+    viewSelect.appendChild(option);
+  }
+  viewSelect.value = report.defaultView ?? Object.keys(report.views)[0];
+  viewSelect.addEventListener('change', run);
+  reportViewSelect = viewSelect;
+
+  const viewLabel = document.createElement('label');
+  viewLabel.textContent = getLocalizedText(structure.commonText.viewBy);
+  viewLabel.appendChild(viewSelect);
+  reportControls.appendChild(viewLabel);
 
   // One <select> per declared filter, driven by the SSOT column metadata.
   for (const field of report.filters ?? []) {
@@ -767,11 +788,13 @@ async function generateReport(
   month: number
 ): Promise<void> {
   const report: ReportDef = structure.reports[reportKey];
+  const view =
+    report.views[reportViewSelect?.value ?? report.defaultView ?? Object.keys(report.views)[0]];
 
   const params = new URLSearchParams({
     year: String(year),
     month: String(month),
-    groupBy: report.groupBy.join(','),
+    groupBy: view.groupBy.join(','),
     dateField: report.dateField,
   });
   if (report.measure) {
@@ -808,7 +831,7 @@ async function generateReport(
       return;
     }
 
-    const reportColumns = report.columns as Record<string, LocalizedText>;
+    const reportColumns = view.columns as Record<string, LocalizedText>;
     const columnKeys = Object.keys(reportColumns);
 
     const headerRow = document.createElement('tr');
