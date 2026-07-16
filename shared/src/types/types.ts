@@ -59,7 +59,24 @@ type ColumnDef = {
   foreignKey?: ForeignKeyDef;
 }
 
-type Role = 'admin' | 'editor' | 'reader';
+// Single source of truth for the privilege levels: the Role union, the runtime
+// list (for validation and the DB CHECK), and isRole all derive from ROLES.
+const ROLES = ['admin', 'administrativo', 'contador'] as const;
+type Role = (typeof ROLES)[number];
+
+function isRole(value: unknown): value is Role {
+  return typeof value === 'string' && (ROLES as readonly string[]).includes(value);
+}
+
+// A logged-in user as exposed to both backend and frontend.
+type AuthUser = {
+  id: number;
+  username: string;
+  email: string | null;
+  role: Role;
+  is_active: boolean;
+  must_change_password: boolean;
+};
 
 type TableAction = 'read' | 'create' | 'update' | 'delete';
 
@@ -73,7 +90,6 @@ type TableStructure = {
   uiName: LocalizedText
   title?: LocalizedText
   addButtonLabel?: LocalizedText
-  referencedTables?: string[]
   // Per-role access control for this table's CRUD actions. Omit to use defaults.
   access?: TableAccess
   // When set, this table is the detail (line items) of another table and is
@@ -122,6 +138,10 @@ type ReportDef = {
   // Selectable groupings; the UI shows a "view by" picker and uses the active one.
   views: Record<string, ReportView>;
   defaultView?: string;   // key of the view shown initially
+  // Roles allowed to run/see this report, independent of table read access. Omit
+  // to fall back to the system default (see DEFAULT_REPORT_ACCESS in structure).
+  access?: Role[];
 };
 
-export type {TypeMap, MyTypeNames, ColumnValidator, ColumnDef, TableStructure, InferType, TableKey, TableRecordMap, Response, ForeignKeyDef, Language, LocalizedText, RendererProps, RendererFunc, Role, TableAction, TableAccess, ReportDef, ReportView};
+export { ROLES, isRole };
+export type {TypeMap, MyTypeNames, ColumnValidator, ColumnDef, TableStructure, InferType, TableKey, TableRecordMap, Response, ForeignKeyDef, Language, LocalizedText, RendererProps, RendererFunc, Role, AuthUser, TableAction, TableAccess, ReportDef, ReportView};

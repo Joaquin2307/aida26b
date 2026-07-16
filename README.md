@@ -1,15 +1,17 @@
-# Sistema de Gestión Académica - Facultad de Ciencias Exactas UBA
+# Sistema de Carga de Comprobantes
 
-Este proyecto implementa un sistema de gestión académica para la Facultad de Ciencias Exactas de la Universidad de Buenos Aires. El sistema permite gestionar alumnos, materias e inscripciones, con el objetivo de automatizar procesos académicos como la identificación de alumnos elegibles para títulos de grado y la generación de certificados.
+Sistema para gestionar proveedores, artículos y comprobantes (con su detalle de ítems). Todo el dominio se declara en un único **Single Source of Truth** (`shared/src/ssot/structure.ts`): a partir de esa declaración se derivan los CRUD, la validación, el frontend y los permisos, de modo que agregar una tabla no requiere escribir endpoints nuevos.
 
 ## Características
 
-- **Gestión de Alumnos**: CRUD completo con número de libreta como identificador único
-- **Gestión de Materias**: CRUD con código de materia como identificador
-- **Gestión de Inscripciones**: Relación muchos-a-muchos entre alumnos y materias con clave compuesta
-- **Interfaz Web**: Grillas interactivas con botones de agregar, editar y eliminar
-- **API REST**: Backend en Node.js con TypeScript
-- **Base de Datos**: PostgreSQL
+- **Proveedores**: CRUD con CUIT como identificador
+- **Artículos**: CRUD con código como identificador, con precio unitario
+- **Comprobantes**: la factura (FK al proveedor); su total se **deriva** del detalle, no se ingresa
+- **Detalle de comprobante**: ítems de línea (relación 1→N, PK compuesta), creados atómicamente junto al comprobante
+- **Reportes mensuales** genéricos, declarados en el SSOT
+- **RBAC de tres niveles**: `admin` (todo), `administrativo` (ve y agrega proveedores/artículos/comprobantes, sin reportes) y `contador` (solo reportes)
+- **Interfaz Web**: grillas interactivas con agregar/editar/eliminar, filtros, orden y paginación; tema claro/oscuro y ES/EN
+- **API REST** genérica en Node.js + TypeScript sobre PostgreSQL
 
 ## Tecnologías Utilizadas
 
@@ -110,42 +112,43 @@ Este proyecto implementa un sistema de gestión académica para la Facultad de C
 ## Uso
 
 1. Ejecutar el backend: `npm start` en la raíz o en el directorio backend (servirá en http://localhost:3000)
-2. Abrir el navegador en http://localhost:3000
-3. Navegar entre las secciones de Alumnos, Materias e Inscripciones
-4. Usar los botones "Agregar" para crear nuevos registros
-5. Usar los botones "Editar" y "Eliminar" en cada fila de las grillas
+2. Abrir el navegador en http://localhost:3000 e iniciar sesión
+3. Según el rol, navegar entre Proveedores, Artículos y Comprobantes, o la vista de Reportes
+4. Usar los botones "Agregar" para crear registros (los comprobantes se cargan junto a su detalle de ítems)
+5. Usar "Editar" y "Eliminar" en cada fila de las grillas
 
 ## API Endpoints
 
-### Alumnos
-- `GET /api/students` - Listar todos los alumnos
-- `GET /api/students/:numero_libreta` - Obtener alumno específico
-- `POST /api/students` - Crear nuevo alumno
-- `PUT /api/students/:numero_libreta` - Actualizar alumno
-- `DELETE /api/students/:numero_libreta` - Eliminar alumno
+La API es **genérica y guiada por el SSOT**: hay una ruta por operación parametrizada por `:tableName` (una de `proveedores`, `articulos`, `comprobantes`, `detalle_comprobante`), no un set de endpoints por tabla. La clave primaria va por query params.
 
-### Materias
-- `GET /api/subjects` - Listar todas las materias
-- `GET /api/subjects/:cod_mat` - Obtener materia específica
-- `POST /api/subjects` - Crear nueva materia
-- `PUT /api/subjects/:cod_mat` - Actualizar materia
-- `DELETE /api/subjects/:cod_mat` - Eliminar materia
+### CRUD genérico
+- `GET /api/:tableName` — listar (soporta `?page=`, `?sort=`, `?dir=`, `?filter_<col>=`)
+- `GET /api/:tableName?<pk>=<valor>` — obtener un registro (PK compuesta: varios params)
+- `POST /api/:tableName` — crear
+- `PUT /api/:tableName?<pk>=<valor>` — actualizar
+- `DELETE /api/:tableName?<pk>=<valor>` — eliminar
 
-### Inscripciones
-- `GET /api/enrollments` - Listar todas las inscripciones
-- `GET /api/enrollments/:numero_libreta/:cod_mat` - Obtener inscripción específica
-- `POST /api/enrollments` - Crear nueva inscripción
-- `PUT /api/enrollments/:numero_libreta/:cod_mat` - Actualizar inscripción
-- `DELETE /api/enrollments/:numero_libreta/:cod_mat` - Eliminar inscripción
+### Compuestos y reportes
+- `POST /api/:tableName/with-items` — crea un padre y su detalle en una transacción atómica (ej. comprobante + ítems)
+- `GET /api/reports/:tableName/monthly?report=<key>&view=<key>&year=&month=` — reporte mensual declarado en el SSOT
+
+### Autenticación
+- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/change-password`
+- `POST /api/admin/users`, `POST /api/admin/users/:id/reset-password` (solo `admin`)
+
+Todas las rutas de negocio exigen sesión y aplican RBAC según el rol declarado en el SSOT.
+
+## Roles
+
+- **admin**: acceso total (CRUD de todas las tablas + reportes).
+- **administrativo**: ve y agrega proveedores, artículos y comprobantes (read + create); no edita/borra ni genera reportes.
+- **contador**: solo genera reportes; sin acceso a las tablas.
 
 ## Desarrollo Futuro
 
-- Implementar autenticación y autorización
-- Agregar validaciones más robustas
-- Implementar búsqueda y filtros
-- Generar reportes y estadísticas
-- Automatizar procesos de titulación
-- Generar certificados de alumno regular
+- Búsqueda de texto completo y reportes adicionales
+- Exportación de comprobantes/reportes (PDF/CSV)
+- 2FA en la autenticación
 
 ## Testing de Paginación (Frontend + TypeScript)
 

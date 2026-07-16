@@ -1,6 +1,6 @@
 // Main application file
 // Code and comments in English
-import { structure, canRoleDo } from '@shared/ssot/structure';
+import { structure, canRoleDo, canRoleRunReport } from '@shared/ssot/structure';
 import {
   Language,
   LocalizedText,
@@ -13,6 +13,8 @@ import {
   RendererProps,
   RendererFunc,
   ReportDef,
+  Role,
+  AuthUser,
   Response as ApiResponse,
 } from '@shared/types/types';
 import { getPkFields } from '@shared/utils/utils';
@@ -21,17 +23,6 @@ import '../styles/style.css';
 
 const API_BASE = '/api';
 const PAGE_SIZE = 20;
-
-type Role = 'admin' | 'editor' | 'reader';
-
-type AuthUser = {
-  id: number;
-  username: string;
-  email: string | null;
-  role: Role;
-  is_active: boolean;
-  must_change_password: boolean;
-};
 
 // -----------------------------------------------------------------------------
 // Localization
@@ -186,10 +177,33 @@ function showApp(user: AuthUser): void {
   createTableNavButtons();
   createReportNavButtons();
 
-  showSection(activeTableKey, false);
+  // Land on the first readable table; a reports-only role (contador) has none,
+  // so open its first available report instead of a forbidden table view.
+  const firstReadableTable = navTableKeys.find((key) =>
+    canRoleDo(user.role, key, 'read')
+  );
+  const firstRunnableReport = reportKeys.find((key) =>
+    canRoleRunReport(user.role, key)
+  );
+
+  if (firstReadableTable) {
+    showSection(firstReadableTable, false);
+  } else if (firstRunnableReport) {
+    showReport(firstRunnableReport);
+  } else {
+    recordsSection.style.display = 'none';
+    reportSection.style.display = 'none';
+  }
 }
 
-async function apiFetch(path: string, options: RequestInit = {}): Promise<globalThis.Response> {
+// `silent` suppresses the global permission/session message on 401/403, for
+// optional background fetches (e.g. loading a report filter's FK options) whose
+// failure the caller handles on its own.
+async function apiFetch(
+  path: string,
+  options: RequestInit = {},
+  { silent = false }: { silent?: boolean } = {}
+): Promise<globalThis.Response> {
   const headers = options.body
     ? {
         'Content-Type': 'application/json',
@@ -204,7 +218,7 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<global
   });
 
   if (response.status === 401) {
-    showLogin(getLocalizedText(structure.commonText.sessionExpired));
+    if (!silent) showLogin(getLocalizedText(structure.commonText.sessionExpired));
     throw new Error('Authentication required');
   }
 
@@ -214,12 +228,14 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<global
       .json()
       .catch(() => ({} as { error?: string }));
 
-    const message =
-      data.error === 'Password change required'
-        ? getLocalizedText(structure.commonText.passwordChangeRequired)
-        : getLocalizedText(structure.commonText.noPermission);
+    if (!silent) {
+      const message =
+        data.error === 'Password change required'
+          ? getLocalizedText(structure.commonText.passwordChangeRequired)
+          : getLocalizedText(structure.commonText.noPermission);
 
-    setMessage(message);
+      setMessage(message);
+    }
     throw new Error(data.error || 'Forbidden');
   }
 
@@ -360,12 +376,12 @@ async function fetchRows(path: string): Promise<unknown[]> {
 // Fetches every row of a table by walking the paginated list endpoint, so a
 // foreign-key <select> shows all options instead of only the first page. `query`
 // holds any extra filter params (without a leading `?`/`&`).
-async function fetchAllRows(table: string, query = ''): Promise<unknown[]> {
+async function fetchAllRows(table: string, query = '', silent = false): Promise<unknown[]> {
   const all: unknown[] = [];
   const suffix = query ? `&${query}` : '';
 
   for (let page = 1; page <= 1000; page++) {
-    const response = await apiFetch(`/${table}?page=${page}${suffix}`);
+    const response = await apiFetch(`/${table}?page=${page}${suffix}`, {}, { silent });
 
     if (!response.ok) {
       throw new Error(await errorMessage(response));
@@ -487,6 +503,22 @@ function mapInputToRenderer(input?: ColumnDef['input']): RendererKey {
 // -----------------------------------------------------------------------------
 
 let activeTableKey: TableKey = tableKeys[0];
+// The report currently on screen, or null when a table view is active. Lets a
+// re-render (language change, history navigation) restore the right view instead
+// of always falling back to a table — which a reports-only role cannot read.
+let activeReportKey: (keyof typeof structure.reports) | null = null;
+
+// Re-renders whatever view is currently active, honoring this user's access, so
+// no re-render ever drops the user on a forbidden table.
+function refreshActiveView(): void {
+  if (!currentUser || currentUser.must_change_password) return;
+
+  if (activeReportKey && canRoleRunReport(currentUser.role, activeReportKey)) {
+    showReport(activeReportKey);
+  } else if (canRoleDo(currentUser.role, activeTableKey, 'read')) {
+    showSection(activeTableKey, false);
+  }
+}
 
 type FilterEntry = {
   negated: boolean;
@@ -661,9 +693,10 @@ function createReportNavButtons(): void {
   for (const key of Object.keys(reportNavButtons)) delete reportNavButtons[key];
 
   for (const key of reportKeys) {
-    const report = structure.reports[key];
-    if (currentUser && !canRoleDo(currentUser.role, report.table, 'read')) continue;
+    // Report visibility is governed by report access, not table read.
+    if (currentUser && !canRoleRunReport(currentUser.role, key)) continue;
 
+    const report = structure.reports[key];
     const button = document.createElement('button');
     button.id = `report-${String(key)}-btn`;
     button.textContent = getLocalizedText(report.title);
@@ -679,6 +712,7 @@ function createReportNavButtons(): void {
 function showReport(reportKey: keyof typeof structure.reports): void {
   const report: ReportDef = structure.reports[reportKey];
 
+  activeReportKey = reportKey;
   recordsSection.style.display = 'none';
   reportSection.style.display = '';
   hideAnyForm();
@@ -795,12 +829,15 @@ function buildReportFilter(
     );
   } else if (column.foreignKey) {
     const foreignKey = column.foreignKey;
-    fetchAllRows(foreignKey.table)
+    // Background load: a reports-only role may lack read on the FK table, so
+    // fetch silently and let the catch below degrade to an empty dropdown.
+    fetchAllRows(foreignKey.table, '', true)
       .then((rows) => addOptions(rowsToFkOptions(rows, foreignKey)))
       .catch((error) => {
-        reportMessage.textContent = getLocalizedText(structure.commonText.errorLoadingData);
-        reportMessage.hidden = false;
-        console.error(`Error loading filter options for ${field}:`, error);
+        // The filter is optional; if its options can't be loaded (e.g. a
+        // reports-only role without table read), leave it empty rather than
+        // blocking the report.
+        console.warn(`Could not load filter options for ${field}:`, error);
       });
   }
 
@@ -909,6 +946,7 @@ function resetStateForTable(tableKey: TableKey): void {
 
 function showSection(section: TableKey, pushState = true): void {
   // Switching to a table view: show records and hide the report view.
+  activeReportKey = null;
   recordsSection.style.display = '';
   reportSection.style.display = 'none';
   Object.values(reportNavButtons).forEach((button) => button.classList.remove('active'));
@@ -950,10 +988,7 @@ function showSection(section: TableKey, pushState = true): void {
 
 window.addEventListener('popstate', () => {
   syncUrlToState();
-
-  if (currentUser && !currentUser.must_change_password) {
-    showSection(activeTableKey, false);
-  }
+  refreshActiveView();
 });
 
 // Drill into the line items (detail) of a single parent row.
@@ -1009,6 +1044,43 @@ function enterDetailView(
 // Menu
 // -----------------------------------------------------------------------------
 
+// Browser-side behavior for each SSOT menu (the SSOT itself only declares data).
+const menuBehaviors: Record<
+  keyof typeof structure.menu,
+  { initial: () => string; handler: (value: string) => void }
+> = {
+  theme: {
+    initial: () => localStorage.getItem('theme') || 'light',
+    handler: (value: string) => {
+      try {
+        if (!value) throw new Error('Theme value is required');
+        document.body.setAttribute('data-theme', value);
+        localStorage.setItem('theme', value);
+      } catch (err) {
+        console.error('Error changing theme:', err);
+        alert(getLocalizedText(structure.commonText.themeChangeError));
+      }
+    },
+  },
+  language: {
+    initial: () => localStorage.getItem('language') || 'es',
+    handler: (value: string) => {
+      try {
+        if (value !== 'es' && value !== 'en') {
+          throw new Error('Invalid language value');
+        }
+        localStorage.setItem('language', value);
+        window.dispatchEvent(
+          new CustomEvent('languagechange', { detail: { language: value } })
+        );
+      } catch (err) {
+        console.error('Error changing language:', err);
+        alert(getLocalizedText(structure.commonText.languageChangeError));
+      }
+    },
+  },
+};
+
 function renderAnyMenuOption(key: keyof typeof structure.menu): void {
   const config = structure.menu[key];
 
@@ -1025,8 +1097,7 @@ function renderAnyMenuOption(key: keyof typeof structure.menu): void {
   select.id = config.id;
   select.classList.add('picker');
 
-  const initialValue =
-    typeof config.initial === 'function' ? config.initial() : config.initial;
+  const initialValue = menuBehaviors[key].initial();
 
   config.options.forEach((option) => {
     const optionEl = document.createElement('option');
@@ -1044,12 +1115,11 @@ function renderAnyMenuOption(key: keyof typeof structure.menu): void {
   select.addEventListener('change', (event) => {
     const value = (event.target as HTMLSelectElement).value;
 
-    (config.handler as (value: string) => void)(value);
-
-    if (key === 'language' && isLanguage(value)) {
-      setLanguage(value);
-      applyLanguageToUI();
-    }
+    // The handler for `language` dispatches a `languagechange` event that the
+    // window listener turns into setLanguage + applyLanguageToUI, so we must not
+    // do it a second time here (that re-rendered everything — and refetched the
+    // table — twice per change).
+    menuBehaviors[key].handler(value);
   });
 
   wrapper.appendChild(label);
@@ -1066,10 +1136,7 @@ function applyLanguageToUI(): void {
   applyStaticLanguageToUI();
   updateNavButtonsText();
   showMenu();
-
-  if (currentUser && !currentUser.must_change_password) {
-    showSection(activeTableKey, false);
-  }
+  refreshActiveView();
 }
 
 window.addEventListener('languagechange', (event) => {
@@ -1967,18 +2034,26 @@ async function buildItemsSection<K extends TableKey>(
   parentKey: K,
   childKey: TableKey,
   linkField: string
-): Promise<ItemsSection> {
+): Promise<ItemsSection | null> {
   const childCols = structure.tables[childKey].columns as Record<string, ColumnDef>;
   const fkField = Object.keys(childCols).find(
     (field) => field !== linkField && childCols[field].foreignKey
-  )!;
+  );
   const qtyField = Object.keys(childCols).find(
     (field) =>
       field !== linkField &&
       field !== fkField &&
       childCols[field].editable !== false &&
       !childCols[field].derivable
-  )!;
+  );
+
+  // This inline editor only handles the simple "pick a FK row + a quantity"
+  // line-item shape. If the child doesn't match, skip it (the parent form still
+  // works) instead of crashing on an undefined field.
+  if (!fkField || !qtyField) {
+    return null;
+  }
+
   const fk = childCols[fkField].foreignKey!;
 
   // Unit-price column of the FK table, derived from the SSOT (not hardcoded), so
@@ -2111,10 +2186,11 @@ async function buildItemsSection<K extends TableKey>(
       }
 
       hasArticle = true;
-      const n = Number(qty.value);
-      const ok = Number.isInteger(n) && n >= 1;
-      qty.classList.toggle('invalid', !ok);
-      if (!ok) badQty = true;
+      // Validate the quantity with the SSOT rule for that column (integer,
+      // minValue, ...) instead of re-hardcoding it here.
+      const error = validateField(childKey, qtyField, Number(qty.value));
+      qty.classList.toggle('invalid', Boolean(error));
+      if (error) badQty = true;
     });
 
     if (!hasArticle) {
@@ -2230,7 +2306,9 @@ async function showAnyForm<K extends TableKey>(
         childDetails[0].childKey,
         childDetails[0].linkField
       );
-      form.insertBefore(itemsSection.container, actionsDiv);
+      if (itemsSection) {
+        form.insertBefore(itemsSection.container, actionsDiv);
+      }
     }
   }
 
@@ -2264,7 +2342,7 @@ async function showAnyForm<K extends TableKey>(
     try {
       // A comprobante and its line items are created atomically by a dedicated
       // endpoint, so a failing item never leaves an orphan header — and the flow
-      // works for editors, who may create comprobantes but not delete them.
+      // works for administrativo, who may create comprobantes but not delete them.
       if (!isEdit && itemsSection) {
         const section = itemsSection;
         const items = section.collect().map((item) => ({

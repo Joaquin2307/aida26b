@@ -4,7 +4,7 @@ import http from 'node:http';
 import { test } from 'vitest';
 import { app, pool } from '../src/server';
 import { hashPassword } from '../src/auth';
-import { canRoleDo, structure } from '../../shared/src/ssot/structure';
+import { canRoleDo, canRoleRunReport, structure } from '../../shared/src/ssot/structure';
 
 class FakeDb {
   constructor(users) {
@@ -65,7 +65,7 @@ class FakeDb {
         email: params[1],
         password_hash: params[2],
         password_salt: params[3],
-        role: sql.includes("'reader'") ? 'reader' : params[4],
+        role: params[4],
         is_active: true,
         must_change_password: true,
       };
@@ -159,12 +159,12 @@ function publicRow(user) {
 
 async function makeDb() {
   const admin = await hashPassword('adminpass');
-  const editor = await hashPassword('editorpass');
-  const reader = await hashPassword('readerpass');
+  const administrativo = await hashPassword('administrativopass');
+  const contador = await hashPassword('contadorpass');
   return new FakeDb([
     { id: 1, username: 'admin', email: null, role: 'admin', is_active: true, must_change_password: false, password_hash: admin.passwordHash, password_salt: admin.passwordSalt },
-    { id: 2, username: 'editor', email: null, role: 'editor', is_active: true, must_change_password: false, password_hash: editor.passwordHash, password_salt: editor.passwordSalt },
-    { id: 3, username: 'reader', email: null, role: 'reader', is_active: true, must_change_password: false, password_hash: reader.passwordHash, password_salt: reader.passwordSalt },
+    { id: 2, username: 'administrativo', email: null, role: 'administrativo', is_active: true, must_change_password: false, password_hash: administrativo.passwordHash, password_salt: administrativo.passwordSalt },
+    { id: 3, username: 'contador', email: null, role: 'contador', is_active: true, must_change_password: false, password_hash: contador.passwordHash, password_salt: contador.passwordSalt },
   ]);
 }
 
@@ -224,40 +224,65 @@ test('login, me and logout manage the session cookie', async () => {
   });
 });
 
-test('reader can read but cannot mutate data', async () => {
+test('contador can run reports but cannot read or mutate tables', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
-    const cookie = await login(baseUrl, 'reader', 'readerpass');
-    assert.equal((await request(baseUrl, '/api/proveedores', { cookie })).status, 200);
+    const cookie = await login(baseUrl, 'contador', 'contadorpass');
+
+    // No table access at all (reports only): reading a table is forbidden...
+    assert.equal((await request(baseUrl, '/api/proveedores', { cookie })).status, 403);
+
+    // ...and so is writing.
     const write = await request(baseUrl, '/api/proveedores', {
       method: 'POST',
       cookie,
       body: { cuit: '20-11111111-1', razon_social: 'Ada Lovelace SA', email: 'ada@example.com', telefono: '111', direccion: 'Calle 1', condicion_iva: 'monotributo' },
     });
     assert.equal(write.status, 403);
-    assert.equal(db.audit.at(-1).event_type, 'permission_denied');
+
+    // But the monthly report is allowed.
+    const report = await request(
+      baseUrl,
+      '/api/reports/comprobantes/monthly?report=comprobantes_mensual&view=estado&year=2026&month=5',
+      { cookie }
+    );
+    assert.equal(report.status, 200);
   });
 });
 
-test('editor can view but cannot create providers, and cannot manage users', async () => {
+test('administrativo can view and add providers, but cannot manage users', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
-    const cookie = await login(baseUrl, 'editor', 'editorpass');
+    const cookie = await login(baseUrl, 'administrativo', 'administrativopass');
 
-    // Editors may view providers...
+    // administrativo may view providers...
     assert.equal((await request(baseUrl, '/api/proveedores', { cookie })).status, 200);
 
-    // ...but only admins can create them.
+    // ...and add them.
     const createProveedor = await request(baseUrl, '/api/proveedores', {
       method: 'POST',
       cookie,
       body: { cuit: '27-22222222-2', razon_social: 'Grace Hopper SRL', email: 'grace@example.com', telefono: '222', direccion: 'Calle 2', condicion_iva: 'responsable_inscripto' },
     });
-    assert.equal(createProveedor.status, 403);
-    assert.equal(db.audit.at(-1).event_type, 'permission_denied');
+    assert.equal(createProveedor.status, 201);
 
-    const createUser = await request(baseUrl, '/api/admin/users', { method: 'POST', cookie, body: { username: 'other', password: 'otherpass', role: 'reader' } });
+    // ...but cannot manage users.
+    const createUser = await request(baseUrl, '/api/admin/users', { method: 'POST', cookie, body: { username: 'other', password: 'otherpass', role: 'contador' } });
     assert.equal(createUser.status, 403);
+  });
+});
+
+test('administrativo cannot run reports', async () => {
+  const db = await makeDb();
+  await withServer(db, async (baseUrl) => {
+    const cookie = await login(baseUrl, 'administrativo', 'administrativopass');
+    const report = await request(
+      baseUrl,
+      '/api/reports/comprobantes/monthly?report=comprobantes_mensual&view=estado&year=2026&month=5',
+      { cookie }
+    );
+    assert.equal(report.status, 403);
+    assert.equal(db.audit.at(-1).event_type, 'permission_denied');
   });
 });
 
@@ -275,10 +300,10 @@ test('admin can create providers', async () => {
   });
 });
 
-test('editor can create a comprobante with its line items', async () => {
+test('administrativo can create a comprobante with its line items', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
-    const cookie = await login(baseUrl, 'editor', 'editorpass');
+    const cookie = await login(baseUrl, 'administrativo', 'administrativopass');
     const res = await request(baseUrl, '/api/comprobantes/with-items', {
       method: 'POST',
       cookie,
@@ -302,7 +327,7 @@ test('editor can create a comprobante with its line items', async () => {
 test('creating a comprobante with an unknown article returns 400', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
-    const cookie = await login(baseUrl, 'editor', 'editorpass');
+    const cookie = await login(baseUrl, 'administrativo', 'administrativopass');
     const res = await request(baseUrl, '/api/comprobantes/with-items', {
       method: 'POST',
       cookie,
@@ -322,10 +347,10 @@ test('creating a comprobante with an unknown article returns 400', async () => {
   });
 });
 
-test('editor cannot edit or delete a comprobante', async () => {
+test('administrativo cannot edit or delete a comprobante', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
-    const cookie = await login(baseUrl, 'editor', 'editorpass');
+    const cookie = await login(baseUrl, 'administrativo', 'administrativopass');
 
     const put = await request(baseUrl, '/api/comprobantes?numero=FA-0001-00000001', {
       method: 'PUT',
@@ -364,27 +389,34 @@ test('creating a provider that already exists returns 409', async () => {
   });
 });
 
-test('access matrix: editors create vouchers only; admins do everything', () => {
-  // Editors can create vouchers and their line items...
-  assert.equal(canRoleDo('editor', 'comprobantes', 'create'), true);
-  assert.equal(canRoleDo('editor', 'detalle_comprobante', 'create'), true);
-  // ...but cannot edit or delete them.
-  assert.equal(canRoleDo('editor', 'comprobantes', 'update'), false);
-  assert.equal(canRoleDo('editor', 'comprobantes', 'delete'), false);
-  // Editors cannot create providers or articles.
-  assert.equal(canRoleDo('editor', 'proveedores', 'create'), false);
-  assert.equal(canRoleDo('editor', 'articulos', 'create'), false);
-  // Everyone can read.
-  assert.equal(canRoleDo('reader', 'comprobantes', 'read'), true);
-  assert.equal(canRoleDo('editor', 'proveedores', 'read'), true);
-  // Readers cannot mutate anything.
-  assert.equal(canRoleDo('reader', 'comprobantes', 'create'), false);
-  // Admins can do everything on every table.
-  for (const t of ['proveedores', 'articulos', 'comprobantes', 'detalle_comprobante']) {
+test('access matrix: three privilege levels (admin, administrativo, contador)', () => {
+  const tables = ['proveedores', 'articulos', 'comprobantes', 'detalle_comprobante'];
+
+  // Admin does everything on every table, and runs reports.
+  for (const t of tables) {
     for (const a of ['read', 'create', 'update', 'delete']) {
       assert.equal(canRoleDo('admin', t, a), true);
     }
   }
+  assert.equal(canRoleRunReport('admin', 'comprobantes_mensual'), true);
+
+  // administrativo views and creates every table, but never edits/deletes...
+  for (const t of tables) {
+    assert.equal(canRoleDo('administrativo', t, 'read'), true);
+    assert.equal(canRoleDo('administrativo', t, 'create'), true);
+    assert.equal(canRoleDo('administrativo', t, 'update'), false);
+    assert.equal(canRoleDo('administrativo', t, 'delete'), false);
+  }
+  // ...and cannot run reports.
+  assert.equal(canRoleRunReport('administrativo', 'comprobantes_mensual'), false);
+
+  // contador only runs reports: no table access of any kind.
+  for (const t of tables) {
+    for (const a of ['read', 'create', 'update', 'delete']) {
+      assert.equal(canRoleDo('contador', t, a), false);
+    }
+  }
+  assert.equal(canRoleRunReport('contador', 'comprobantes_mensual'), true);
 });
 
 test('monthly report rejects an invalid month', async () => {
@@ -405,13 +437,13 @@ test('monthly report rejects unknown columns', async () => {
   });
 });
 
-test('generic monthly report aggregates a table for any authenticated user', async () => {
+test('the declared report/view aggregates a table for a report-enabled role', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
-    const cookie = await login(baseUrl, 'reader', 'readerpass');
+    const cookie = await login(baseUrl, 'contador', 'contadorpass');
     const res = await request(
       baseUrl,
-      '/api/reports/comprobantes/monthly?year=2026&month=5&groupBy=cuit,proveedor_nombre&dateField=fecha&measure=total',
+      '/api/reports/comprobantes/monthly?year=2026&month=5&report=comprobantes_mensual&view=proveedor',
       { cookie }
     );
     assert.equal(res.status, 200);
@@ -427,10 +459,10 @@ test('generic monthly report aggregates a table for any authenticated user', asy
 test('monthly report passes filter_<col> through as an exact-match condition', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
-    const cookie = await login(baseUrl, 'reader', 'readerpass');
+    const cookie = await login(baseUrl, 'contador', 'contadorpass');
     const res = await request(
       baseUrl,
-      '/api/reports/comprobantes/monthly?year=2026&month=5&groupBy=estado&dateField=fecha&measure=total&filter_cuit=20-11223344-5',
+      '/api/reports/comprobantes/monthly?year=2026&month=5&report=comprobantes_mensual&view=estado&filter_cuit=20-11223344-5',
       { cookie }
     );
     assert.equal(res.status, 200);
@@ -456,7 +488,7 @@ test('the "estado" view of the monthly report resolves groupBy from the SSOT end
 
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
-    const cookie = await login(baseUrl, 'reader', 'readerpass');
+    const cookie = await login(baseUrl, 'contador', 'contadorpass');
     const res = await request(baseUrl, `/api/reports/${report.table}/monthly?${params}`, { cookie });
     assert.equal(res.status, 200);
     assert.equal(res.body.data.table, 'comprobantes');
@@ -469,14 +501,14 @@ test('admin can create users and reset passwords', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
     const adminCookie = await login(baseUrl, 'admin', 'adminpass');
-    const created = await request(baseUrl, '/api/admin/users', { method: 'POST', cookie: adminCookie, body: { username: 'newreader', password: 'firstpass', role: 'reader' } });
+    const created = await request(baseUrl, '/api/admin/users', { method: 'POST', cookie: adminCookie, body: { username: 'newconta', password: 'firstpass', role: 'contador' } });
     assert.equal(created.status, 201);
-    assert.equal(created.body.role, 'reader');
+    assert.equal(created.body.role, 'contador');
 
     const reset = await request(baseUrl, `/api/admin/users/${created.body.id}/reset-password`, { method: 'POST', cookie: adminCookie, body: { password: 'secondpass' } });
     assert.equal(reset.status, 200);
 
-    const newCookie = await login(baseUrl, 'newreader', 'secondpass');
+    const newCookie = await login(baseUrl, 'newconta', 'secondpass');
     const me = await request(baseUrl, '/api/auth/me', { cookie: newCookie });
     assert.equal(me.body.user.must_change_password, true);
   });
@@ -486,7 +518,7 @@ test('first login users must change password before using the app', async () => 
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
     const adminCookie = await login(baseUrl, 'admin', 'adminpass');
-    await request(baseUrl, '/api/admin/users', { method: 'POST', cookie: adminCookie, body: { username: 'tempuser', password: 'temppass1', role: 'reader' } });
+    await request(baseUrl, '/api/admin/users', { method: 'POST', cookie: adminCookie, body: { username: 'tempuser', password: 'temppass1', role: 'administrativo' } });
 
     const tempCookie = await login(baseUrl, 'tempuser', 'temppass1');
     const blocked = await request(baseUrl, '/api/proveedores', { cookie: tempCookie });

@@ -1,25 +1,18 @@
 import crypto from 'crypto';
 import { promisify } from 'util';
 
+import { isRole } from '../../shared/src/types/types';
+import type { Role, AuthUser } from '../../shared/src/types/types';
+
 const scrypt = promisify(crypto.scrypt);
 
-export type Role = 'admin' | 'editor' | 'reader';
-
-export type AuthUser = {
-  id: number;
-  username: string;
-  email: string | null;
-  role: Role;
-  is_active: boolean;
-  must_change_password: boolean;
-};
+// Role/AuthUser/isRole live in the shared SSOT types; re-exported so existing
+// backend imports (`./auth`) keep working from a single source of truth.
+export { isRole };
+export type { Role, AuthUser };
 
 export const SESSION_COOKIE = 'aida_session';
 export const SESSION_DAYS = 7;
-
-export function isRole(value: unknown): value is Role {
-  return value === 'admin' || value === 'editor' || value === 'reader';
-}
 
 export async function hashPassword(password: string, salt = crypto.randomBytes(16).toString('hex')) {
   const key = (await scrypt(password, salt, 64)) as Buffer;

@@ -72,10 +72,13 @@ export async function postWithItemsHandler(
   // The generic parent-access check (middleware) only covers the parent table.
   // The detail rows belong to the child table, which may declare a stricter
   // `access`, so authorize the child's create action too before inserting items.
+  // The auth-free test app leaves req.user unset and skips RBAC entirely (like
+  // every other endpoint there); when a user IS present it must have create on
+  // the child — a present-but-roleless user is denied (fail closed).
   if (childTable && items.length > 0) {
-    const role = (req as express.Request & { user?: { role?: Role } }).user?.role;
+    const user = (req as express.Request & { user?: { role?: Role } }).user;
 
-    if (role && !canRoleDo(role, childTable, 'create')) {
+    if (user && (!user.role || !canRoleDo(user.role, childTable, 'create'))) {
       return res.status(403).json({ success: false, message: 'Forbidden' });
     }
   }
