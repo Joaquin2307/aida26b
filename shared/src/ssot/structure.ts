@@ -5,14 +5,6 @@ type LocalizedText = {
   en: string;
 };
 
-function getCurrentLanguage(): keyof LocalizedText {
-  return globalThis.localStorage?.getItem('language') === 'en' ? 'en' : 'es';
-}
-
-function localizeText(text: LocalizedText): string {
-  return text[getCurrentLanguage()] ?? text.es;
-}
-
 export const structure = {
   tables: {
     proveedores: {
@@ -240,7 +232,6 @@ export const structure = {
       },
       title: { es: 'Comprobantes', en: 'Vouchers' },
       addButtonLabel: { es: 'Agregar Comprobante', en: 'Add Voucher' },
-      referencedTables: ['proveedores'],
     } satisfies TableStructure,
 
     detalle_comprobante: {
@@ -327,59 +318,31 @@ export const structure = {
       },
       title: { es: 'Detalle de Comprobantes', en: 'Voucher Items' },
       addButtonLabel: { es: 'Agregar Ítem', en: 'Add Item' },
-      referencedTables: ['comprobantes', 'articulos'],
       detailOf: 'comprobantes',
     } satisfies TableStructure,
   },
 
+  // Data-only menu declarations. The browser-side behavior (initial value +
+  // change handler, which touch document/localStorage/window) lives in the
+  // frontend (menuBehaviors in app.ts), so this SSOT stays a pure declaration
+  // that the backend can import safely.
   menu: {
     theme: {
       title: { es: 'Tema', en: 'Theme' },
       id: 'theme-picker',
-      handler: (value: string) => {
-        try {
-          if (!value) throw new Error('Theme value is required');
-
-          document.body.setAttribute('data-theme', value);
-          localStorage.setItem('theme', value);
-        } catch (err) {
-          console.error('Error changing theme:', err);
-          alert(localizeText(structure.commonText.themeChangeError));
-        }
-      },
       options: [
         { value: 'light', label: { es: 'Claro', en: 'Light' } },
         { value: 'dark', label: { es: 'Oscuro', en: 'Dark' } },
       ],
-      initial: () => localStorage.getItem('theme') || 'light',
     },
 
     language: {
       title: { es: 'Idioma', en: 'Language' },
       id: 'language-picker',
-      handler: (value: string) => {
-        try {
-          if (value !== 'es' && value !== 'en') {
-            throw new Error('Invalid language value');
-          }
-
-          localStorage.setItem('language', value);
-
-          window.dispatchEvent(
-            new CustomEvent('languagechange', {
-              detail: { language: value },
-            })
-          );
-        } catch (err) {
-          console.error('Error changing language:', err);
-          alert(localizeText(structure.commonText.languageChangeError));
-        }
-      },
       options: [
         { value: 'es', label: { es: 'Español', en: 'Spanish' } },
         { value: 'en', label: { es: 'Inglés', en: 'English' } },
       ],
-      initial: () => localStorage.getItem('language') || 'es',
     },
   },
 
@@ -547,12 +510,4 @@ export function canRoleRunReport(role: Role, reportKey: string): boolean {
   const report = (structure.reports as Record<string, ReportDef>)[reportKey];
   if (!report) return false;
   return (report.access ?? DEFAULT_REPORT_ACCESS).includes(role);
-}
-
-// Whether `role` may run at least one report declared over `tableKey` (used to
-// authorize the ad-hoc, explicit-params report path that names no reportKey).
-export function canRoleRunAnyReportForTable(role: Role, tableKey: string): boolean {
-  return Object.values(structure.reports as Record<string, ReportDef>).some(
-    (report) => report.table === tableKey && (report.access ?? DEFAULT_REPORT_ACCESS).includes(role)
-  );
 }

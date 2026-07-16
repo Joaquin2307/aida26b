@@ -271,7 +271,7 @@ test('rejects a provider with an invalid CUIT', async ({ baseURL }) => {
   expect(res.status).toBe(400);
 
   const body = await res.json();
-  expect(body.error).toMatch(/cuit/i);
+  expect(body.message).toMatch(/cuit/i);
 });
 
 async function ensureFilterRowTriggers(page: Page, prefix: string) {

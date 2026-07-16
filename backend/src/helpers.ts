@@ -1,4 +1,4 @@
-import type { TableKey, Response, ColumnDef, TableStructure }  from '../../shared/src/types/types';
+import type { TableKey, Response, ColumnDef }  from '../../shared/src/types/types';
 import      { structure } from '../../shared/src/ssot/structure';
 import type { Pool }      from 'pg';
 
@@ -49,9 +49,23 @@ function getNotDerivableFields(table: TableKey): string[]{
   return notDerivableEntries.map(([fieldName, column]) => fieldName);
 }
 
+// Tables this one references, derived from the columns themselves (their
+// foreignKey.table and derivable.originTable) so it stays in sync with the SSOT
+// instead of being maintained by hand. Self-references are excluded; order is
+// first-seen so the generated JOINs are deterministic.
 function getReferencedRelations(tableName: TableKey): TableKey[]{
-  const refs = (structure.tables[tableName] as TableStructure).referencedTables;
-  return (Array.isArray(refs) ? refs : []) as TableKey[];
+  const columns = Object.values(structure.tables[tableName].columns as Record<string, ColumnDef>);
+  const related: TableKey[] = [];
+
+  for (const column of columns) {
+    for (const table of [column.foreignKey?.table, column.derivable?.originTable]) {
+      if (table && table !== tableName && !related.includes(table as TableKey)) {
+        related.push(table as TableKey);
+      }
+    }
+  }
+
+  return related;
 }
 
 function formatTableColumnsForQuery(fieldsNames: string[], from: number = 1): string[]{

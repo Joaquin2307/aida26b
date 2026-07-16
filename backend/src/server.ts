@@ -7,11 +7,7 @@ import path from 'path';
 import fs from 'fs';
 
 import * as auth from './auth';
-import {
-  canRoleDo,
-  canRoleRunReport,
-  canRoleRunAnyReportForTable,
-} from '../../shared/src/ssot/structure';
+import { canRoleDo, canRoleRunReport } from '../../shared/src/ssot/structure';
 import type { TableAction } from '../../shared/src/types/types';
 
 import { registerApiRoutes } from './routes/register';
@@ -169,8 +165,10 @@ const requireTableAccess =
 // Authorizes the monthly report endpoint by report access (not table read), so
 // a contador can run reports without any table permission and an administrativo
 // with table read still cannot. A named report/view is checked against that
-// report; the ad-hoc explicit-params path requires access to some report of the
-// table in the path.
+// report. The ad-hoc explicit-params path (arbitrary groupBy) is reserved for
+// admin: it can express any grouping — including grouping by the PK, which would
+// leak the table row by row — so only the superuser (who can read every table
+// anyway) may use it.
 const requireReportAccess: RequestHandler = async (req, res, next) => {
   const role = (req as AuthedRequest).user?.role;
   const reportKey = typeof req.query.report === 'string' ? req.query.report : '';
@@ -178,7 +176,7 @@ const requireReportAccess: RequestHandler = async (req, res, next) => {
   const allowed = role
     ? reportKey
       ? canRoleRunReport(role, reportKey)
-      : canRoleRunAnyReportForTable(role, req.params.tableName)
+      : role === 'admin'
     : false;
 
   if (allowed) {

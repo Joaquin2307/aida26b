@@ -55,7 +55,9 @@ export async function getMonthlyReportHandler(
 
   // Prefer the declared report/view (the SSOT is the source of truth); fall back
   // to explicit groupBy/dateField/measure query params for ad-hoc aggregation.
-  const reportKey = String(req.query.report ?? '');
+  // Parsed exactly like requireReportAccess (string only) so a `report[]=` array
+  // can't be authorized as ad-hoc yet executed as a named report.
+  const reportKey = typeof req.query.report === 'string' ? req.query.report : '';
   let groupBy: string[];
   let dateField: string;
   let measure: string;
@@ -94,6 +96,13 @@ export async function getMonthlyReportHandler(
 
   if (!validColumns.includes(dateField)) {
     return sendInvalidInstanceMessage(res, 'dateField must be a valid column');
+  }
+
+  // dateField must actually be a date column, otherwise `col >= make_date(...)`
+  // is invalid SQL and would surface as a 500 instead of a clear 400.
+  const dateColumn = filterConfig[dateField];
+  if (dateColumn.type !== 'date' && dateColumn.input !== 'date') {
+    return sendInvalidInstanceMessage(res, 'dateField must be a date column');
   }
 
   if (measure && !validColumns.includes(measure)) {

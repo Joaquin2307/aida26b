@@ -9,7 +9,6 @@ import {
   getDerivableFields,
   getReferencedRelations,
   tryQuery,
-  columnNamesEqualsNumber,
 } from "../helpers";
 
 import { getPkFields } from "../../../shared/src/utils/utils";
@@ -73,7 +72,11 @@ export function buildFilterConditions(
     }
 
     const fieldName = key.slice(7);
-    const config = filterConfig[fieldName];
+    // Own-property lookup so inherited keys (constructor, __proto__, ...) never
+    // resolve to a truthy value from Object.prototype and slip past the allow-list.
+    const config = Object.prototype.hasOwnProperty.call(filterConfig, fieldName)
+      ? filterConfig[fieldName]
+      : undefined;
 
     if (!config) {
       continue;
@@ -288,19 +291,32 @@ function getJoinsStatements(
 ): string {
   let joinsStatement = "";
   const selfAlias = getTableAlias(queryTable);
+  const columns = structure.tables[queryTable].columns as Record<string, ColumnDef>;
 
   referencedRelations.forEach((tableName) => {
     const referencedAlias = getTableAlias(tableName);
 
     joinsStatement += ` JOIN ${tableName} ${referencedAlias} ON `;
 
-    const pkFields = getPkFields(tableName);
+    // Join on the declared foreign-key columns (self.<fkColumn> = ref.<valueField>),
+    // so a FK whose column name differs from the referenced PK still joins
+    // correctly. Fall back to the same-name PK convention only when the table is
+    // referenced without a FK column (e.g. solely through a derivable column).
+    const fkConditions = Object.entries(columns)
+      .filter(([, column]) => column.foreignKey?.table === tableName)
+      .map(
+        ([columnName, column]) =>
+          `${selfAlias}.${columnName} = ${referencedAlias}.${column.foreignKey!.valueField}`
+      );
 
-    const pkFieldsEqualityStatements = pkFields.map(
-      (pk) => `${selfAlias}.${pk} = ${referencedAlias}.${pk}`
-    );
+    const conditions =
+      fkConditions.length > 0
+        ? fkConditions
+        : getPkFields(tableName).map(
+            (pk) => `${selfAlias}.${pk} = ${referencedAlias}.${pk}`
+          );
 
-    joinsStatement += pkFieldsEqualityStatements.join(" AND ");
+    joinsStatement += conditions.join(" AND ");
   });
 
   return joinsStatement;
@@ -338,15 +354,14 @@ function getSelectStatement(tableName: TableKey): string {
 export function getBaseSelectQuery(tableName: TableKey): string {
   const referencedRelations = getReferencedRelations(tableName);
 
-  if (referencedRelations.length > 0) {
-    return `
-      ${getSelectStatement(tableName)}
-      FROM ${tableName} ${getTableAlias(tableName)}
-      ${getJoinsStatements(tableName, referencedRelations)}
-    `;
-  }
-
-  return `SELECT * FROM ${tableName}`;
+  // Always select through getSelectStatement so a table's derivable columns are
+  // materialized whether or not it declares any JOINs (a derivable can reference
+  // only {{self}}); the JOINs are added only when there are referenced tables.
+  return `
+    ${getSelectStatement(tableName)}
+    FROM ${tableName} ${getTableAlias(tableName)}
+    ${referencedRelations.length > 0 ? getJoinsStatements(tableName, referencedRelations) : ""}
+  `;
 }
 
 export function getListFilterConfig(tableName: TableKey): Record<string, ColumnDef> {
@@ -399,15 +414,16 @@ async function getRowByPKs(
   tableName: TableKey,
   pkValues: unknown[]
 ) {
-  const whereArguments = columnNamesEqualsNumber(
-    getPkFields(tableName),
-    1,
-    " AND "
-  );
+  // Reuse the list query (with derived columns) as a subquery so a single-row
+  // fetch returns the same shape as the list endpoint, filtering by PK on the
+  // wrapping alias.
+  const whereArguments = getPkFields(tableName)
+    .map((pk, index) => `base."${pk}" = $${index + 1}`)
+    .join(" AND ");
 
   const queryStatement = `
     SELECT *
-    FROM ${tableName}
+    FROM (${getBaseSelectQuery(tableName)}) AS base
     WHERE ${whereArguments}
   `;
 

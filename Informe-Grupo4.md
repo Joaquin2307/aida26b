@@ -53,8 +53,8 @@ Acá escribimos a mano una query que agrupa y suma, porque el CRUD sabe listar f
 Ver: sqlGenerationStatement en structure.ts. Valores calculados por SQL que se declaran en el ssot, como el total del comprobante (SUM(cantidad * precio_unitario)) o el subtotal de cada línea. Lo resolvimos así para que el total no se pueda desincronizar de las líneas: no es un campo que se ingresa, es una fórmula.
 El subquery del total no es SQL suelto, vive declarado como fórmula de la columna en el ssot. Y como el total dejó de guardarse, la migración 'comprobante_total_derived' hace el DROP COLUMN total.
 
-### 4. RBAC por tabla y acción
-Ver: access en structure.ts (canRoleDo). Cada tabla declara en el ssot quién puede hacer create/update/delete, y esa misma declaración la usan el backend y el frontend. 
-Ej: un editor puede cargar comprobantes, pero solo un admin los edita o borra. Lo pusimos en el ssot para tener una única fuente de permisos, sin reglas duplicadas entre front y back. Acá no tocamos SQL: se resuelve en la capa de aplicación a partir del ssot.
+### 4. RBAC de tres niveles
+Ver: access en structure.ts (canRoleDo) y access por reporte (canRoleRunReport). Cada tabla declara en el ssot quién puede hacer read/create/update/delete, y cada reporte declara quién puede correrlo; esas mismas declaraciones las usan el backend y el frontend.
+Hay tres niveles: admin (puede todo), administrativo (ve y agrega proveedores/artículos/comprobantes, sin editar/borrar y sin reportes) y contador (solo genera reportes, sin acceso a las tablas). El acceso a reportes se declara aparte del read de tabla, para poder darle reportes al contador sin darle las tablas y datos al administrativo sin darle reportes. Lo pusimos en el ssot para tener una única fuente de permisos, sin reglas duplicadas entre front y back. Acá no tocamos SQL: se resuelve en la capa de aplicación a partir del ssot.
 
 El SQL del CRUD base (post/put/delete y el SELECT/JOIN de get) no se modificó: lo sigue generando el motor a partir del ssot.

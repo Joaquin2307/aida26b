@@ -437,13 +437,13 @@ test('monthly report rejects unknown columns', async () => {
   });
 });
 
-test('generic monthly report aggregates a table for a report-enabled role', async () => {
+test('the declared report/view aggregates a table for a report-enabled role', async () => {
   const db = await makeDb();
   await withServer(db, async (baseUrl) => {
     const cookie = await login(baseUrl, 'contador', 'contadorpass');
     const res = await request(
       baseUrl,
-      '/api/reports/comprobantes/monthly?year=2026&month=5&groupBy=cuit,proveedor_nombre&dateField=fecha&measure=total',
+      '/api/reports/comprobantes/monthly?year=2026&month=5&report=comprobantes_mensual&view=proveedor',
       { cookie }
     );
     assert.equal(res.status, 200);
@@ -462,7 +462,7 @@ test('monthly report passes filter_<col> through as an exact-match condition', a
     const cookie = await login(baseUrl, 'contador', 'contadorpass');
     const res = await request(
       baseUrl,
-      '/api/reports/comprobantes/monthly?year=2026&month=5&groupBy=estado&dateField=fecha&measure=total&filter_cuit=20-11223344-5',
+      '/api/reports/comprobantes/monthly?year=2026&month=5&report=comprobantes_mensual&view=estado&filter_cuit=20-11223344-5',
       { cookie }
     );
     assert.equal(res.status, 200);
