@@ -3,7 +3,7 @@ import { promisify } from 'util';
 
 const scrypt = promisify(crypto.scrypt);
 
-export type Role = 'admin' | 'editor' | 'reader';
+export type Role = 'admin' | 'administrativo' | 'contador';
 
 export type AuthUser = {
   id: number;
@@ -18,7 +18,7 @@ export const SESSION_COOKIE = 'aida_session';
 export const SESSION_DAYS = 7;
 
 export function isRole(value: unknown): value is Role {
-  return value === 'admin' || value === 'editor' || value === 'reader';
+  return value === 'admin' || value === 'administrativo' || value === 'contador';
 }
 
 export async function hashPassword(password: string, salt = crypto.randomBytes(16).toString('hex')) {

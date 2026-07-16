@@ -1,6 +1,6 @@
 // Main application file
 // Code and comments in English
-import { structure, canRoleDo } from '@shared/ssot/structure';
+import { structure, canRoleDo, canRoleRunReport } from '@shared/ssot/structure';
 import {
   Language,
   LocalizedText,
@@ -22,7 +22,7 @@ import '../styles/style.css';
 const API_BASE = '/api';
 const PAGE_SIZE = 20;
 
-type Role = 'admin' | 'editor' | 'reader';
+type Role = 'admin' | 'administrativo' | 'contador';
 
 type AuthUser = {
   id: number;
@@ -186,7 +186,23 @@ function showApp(user: AuthUser): void {
   createTableNavButtons();
   createReportNavButtons();
 
-  showSection(activeTableKey, false);
+  // Land on the first readable table; a reports-only role (contador) has none,
+  // so open its first available report instead of a forbidden table view.
+  const firstReadableTable = navTableKeys.find((key) =>
+    canRoleDo(user.role, key, 'read')
+  );
+  const firstRunnableReport = reportKeys.find((key) =>
+    canRoleRunReport(user.role, key)
+  );
+
+  if (firstReadableTable) {
+    showSection(firstReadableTable, false);
+  } else if (firstRunnableReport) {
+    showReport(firstRunnableReport);
+  } else {
+    recordsSection.style.display = 'none';
+    reportSection.style.display = 'none';
+  }
 }
 
 async function apiFetch(path: string, options: RequestInit = {}): Promise<globalThis.Response> {
@@ -661,9 +677,10 @@ function createReportNavButtons(): void {
   for (const key of Object.keys(reportNavButtons)) delete reportNavButtons[key];
 
   for (const key of reportKeys) {
-    const report = structure.reports[key];
-    if (currentUser && !canRoleDo(currentUser.role, report.table, 'read')) continue;
+    // Report visibility is governed by report access, not table read.
+    if (currentUser && !canRoleRunReport(currentUser.role, key)) continue;
 
+    const report = structure.reports[key];
     const button = document.createElement('button');
     button.id = `report-${String(key)}-btn`;
     button.textContent = getLocalizedText(report.title);
@@ -798,9 +815,10 @@ function buildReportFilter(
     fetchAllRows(foreignKey.table)
       .then((rows) => addOptions(rowsToFkOptions(rows, foreignKey)))
       .catch((error) => {
-        reportMessage.textContent = getLocalizedText(structure.commonText.errorLoadingData);
-        reportMessage.hidden = false;
-        console.error(`Error loading filter options for ${field}:`, error);
+        // The filter is optional; if its options can't be loaded (e.g. a
+        // reports-only role without table read), leave it empty rather than
+        // blocking the report.
+        console.warn(`Could not load filter options for ${field}:`, error);
       });
   }
 
@@ -2264,7 +2282,7 @@ async function showAnyForm<K extends TableKey>(
     try {
       // A comprobante and its line items are created atomically by a dedicated
       // endpoint, so a failing item never leaves an orphan header — and the flow
-      // works for editors, who may create comprobantes but not delete them.
+      // works for administrativo, who may create comprobantes but not delete them.
       if (!isEdit && itemsSection) {
         const section = itemsSection;
         const items = section.collect().map((item) => ({

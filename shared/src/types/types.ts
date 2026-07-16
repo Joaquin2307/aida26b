@@ -59,7 +59,7 @@ type ColumnDef = {
   foreignKey?: ForeignKeyDef;
 }
 
-type Role = 'admin' | 'editor' | 'reader';
+type Role = 'admin' | 'administrativo' | 'contador';
 
 type TableAction = 'read' | 'create' | 'update' | 'delete';
 
@@ -122,6 +122,9 @@ type ReportDef = {
   // Selectable groupings; the UI shows a "view by" picker and uses the active one.
   views: Record<string, ReportView>;
   defaultView?: string;   // key of the view shown initially
+  // Roles allowed to run/see this report, independent of table read access. Omit
+  // to fall back to the system default (see DEFAULT_REPORT_ACCESS in structure).
+  access?: Role[];
 };
 
 export type {TypeMap, MyTypeNames, ColumnValidator, ColumnDef, TableStructure, InferType, TableKey, TableRecordMap, Response, ForeignKeyDef, Language, LocalizedText, RendererProps, RendererFunc, Role, TableAction, TableAccess, ReportDef, ReportView};

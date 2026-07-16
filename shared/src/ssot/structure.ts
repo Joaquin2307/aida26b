@@ -16,8 +16,13 @@ function localizeText(text: LocalizedText): string {
 export const structure = {
   tables: {
     proveedores: {
-      // Only admins manage providers; editors and readers can view them.
-      access: { create: ['admin'], update: ['admin'], delete: ['admin'] },
+      // admin and administrativo view and add providers; only admin edits or deletes.
+      access: {
+        read: ['admin', 'administrativo'],
+        create: ['admin', 'administrativo'],
+        update: ['admin'],
+        delete: ['admin'],
+      },
       columns: {
         cuit: {
           type: 'string',
@@ -96,8 +101,13 @@ export const structure = {
     } satisfies TableStructure,
 
     articulos: {
-      // Only admins manage articles; editors and readers can view them.
-      access: { create: ['admin'], update: ['admin'], delete: ['admin'] },
+      // admin and administrativo view and add articles; only admin edits or deletes.
+      access: {
+        read: ['admin', 'administrativo'],
+        create: ['admin', 'administrativo'],
+        update: ['admin'],
+        delete: ['admin'],
+      },
       columns: {
         codigo: {
           type: 'string',
@@ -134,8 +144,13 @@ export const structure = {
 
     comprobantes: {
       pk: 'numero',
-      // Editors can create vouchers; only admins may edit or delete them.
-      access: { create: ['admin', 'editor'], update: ['admin'], delete: ['admin'] },
+      // administrativo views and creates vouchers; only admin edits or deletes them.
+      access: {
+        read: ['admin', 'administrativo'],
+        create: ['admin', 'administrativo'],
+        update: ['admin'],
+        delete: ['admin'],
+      },
       uiName: { es: 'Comprobante', en: 'Voucher' },
       columns: {
         numero: {
@@ -230,8 +245,13 @@ export const structure = {
 
     detalle_comprobante: {
       pk: ['numero', 'codigo'],
-      // Line items follow the voucher policy: editors create, admins edit/delete.
-      access: { create: ['admin', 'editor'], update: ['admin'], delete: ['admin'] },
+      // Line items follow the voucher policy: administrativo creates, admin edits/deletes.
+      access: {
+        read: ['admin', 'administrativo'],
+        create: ['admin', 'administrativo'],
+        update: ['admin'],
+        delete: ['admin'],
+      },
       uiName: { es: 'Detalle', en: 'Item' },
       columns: {
         numero: {
@@ -460,6 +480,9 @@ export const structure = {
       dateField: 'fecha',
       measure: 'total',
       filters: ['cuit'],
+      // Reports are the contador's job (and the admin can see everything);
+      // administrativo loads data but does not run reports.
+      access: ['admin', 'contador'],
       defaultView: 'proveedor',
       views: {
         proveedor: {
@@ -491,15 +514,17 @@ export const structure = {
 // -----------------------------------------------------------------------------
 
 // Behavior for tables (or actions) that do not declare their own `access`.
-// Reads are open to every role; writes are denied to everyone but admins, so a
-// table that forgets to declare `access` fails closed (write access must be
-// granted explicitly in the SSOT) instead of silently allowing editors.
+// Writes are denied to everyone but admins, so a table that forgets to declare
+// `access` fails closed (access must be granted explicitly in the SSOT).
 const DEFAULT_ACCESS: Record<TableAction, Role[]> = {
-  read: ['admin', 'editor', 'reader'],
+  read: ['admin'],
   create: ['admin'],
   update: ['admin'],
   delete: ['admin'],
 };
+
+// Roles allowed to run a report that does not declare its own `access`.
+const DEFAULT_REPORT_ACCESS: Role[] = ['admin'];
 
 // Roles allowed to perform `action` on `tableKey`, falling back to defaults.
 export function rolesForTableAction(tableKey: string, action: TableAction): Role[] {
@@ -510,4 +535,24 @@ export function rolesForTableAction(tableKey: string, action: TableAction): Role
 // Whether `role` may perform `action` on `tableKey`.
 export function canRoleDo(role: Role, tableKey: string, action: TableAction): boolean {
   return rolesForTableAction(tableKey, action).includes(role);
+}
+
+// -----------------------------------------------------------------------------
+// Report access (decoupled from table read: administrativo reads tables but runs
+// no reports; contador runs reports without any table read access).
+// -----------------------------------------------------------------------------
+
+// Whether `role` may run/see the report `reportKey`.
+export function canRoleRunReport(role: Role, reportKey: string): boolean {
+  const report = (structure.reports as Record<string, ReportDef>)[reportKey];
+  if (!report) return false;
+  return (report.access ?? DEFAULT_REPORT_ACCESS).includes(role);
+}
+
+// Whether `role` may run at least one report declared over `tableKey` (used to
+// authorize the ad-hoc, explicit-params report path that names no reportKey).
+export function canRoleRunAnyReportForTable(role: Role, tableKey: string): boolean {
+  return Object.values(structure.reports as Record<string, ReportDef>).some(
+    (report) => report.table === tableKey && (report.access ?? DEFAULT_REPORT_ACCESS).includes(role)
+  );
 }

@@ -5,12 +5,12 @@ import { hashPassword, isRole } from './auth';
 dotenv.config();
 
 // One-off helper to create/update a user with an arbitrary role (e.g. to seed
-// editor/reader accounts for manual testing). Run with:
-//   SEED_USERNAME=editor SEED_PASSWORD=editor123 SEED_ROLE=editor npm run seed-user
+// administrativo/contador accounts for manual testing). Run with:
+//   SEED_USERNAME=conta SEED_PASSWORD=conta1234 SEED_ROLE=contador npm run seed-user
 async function main() {
   const username = process.env.SEED_USERNAME?.trim();
   const password = process.env.SEED_PASSWORD;
-  const role = process.env.SEED_ROLE?.trim() || 'reader';
+  const role = process.env.SEED_ROLE?.trim() || 'contador';
   const email = process.env.SEED_EMAIL?.trim() || null;
 
   if (!username || !password || password.length < 8) {
@@ -18,7 +18,7 @@ async function main() {
   }
 
   if (!isRole(role)) {
-    throw new Error('SEED_ROLE must be one of: admin, editor, reader');
+    throw new Error('SEED_ROLE must be one of: admin, administrativo, contador');
   }
 
   const pool = new Pool({

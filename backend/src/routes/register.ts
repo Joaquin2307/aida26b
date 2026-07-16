@@ -19,7 +19,15 @@ const noGuard: ApiGuard = () => [];
 
 // Registers the SSOT-driven generic API surface on `app`. Adding a table adds no
 // routes; adding a route here adds it for every app that calls this function.
-export function registerApiRoutes(app: Express, pool: Pool, guard: ApiGuard = noGuard) {
+// `reportMiddleware` guards the report route: report access is decoupled from
+// table read, so the caller supplies its own report-authorization middleware
+// (defaults to the generic read guard when omitted).
+export function registerApiRoutes(
+  app: Express,
+  pool: Pool,
+  guard: ApiGuard = noGuard,
+  reportMiddleware: RequestHandler[] = guard('read')
+) {
   // Compound endpoint: create a parent row and its detail rows atomically. The
   // parent-table access is checked here; the child-table access is checked
   // inside the handler (the child may be more restrictive than its parent).
@@ -27,8 +35,9 @@ export function registerApiRoutes(app: Express, pool: Pool, guard: ApiGuard = no
     postWithItemsHandler(req, res, pool)
   );
 
-  // Generic monthly report aggregation over any SSOT table.
-  app.get('/api/reports/:tableName/monthly', ...guard('read'), (req, res) =>
+  // Generic monthly report aggregation over any SSOT table, guarded by report
+  // access (not table read).
+  app.get('/api/reports/:tableName/monthly', ...reportMiddleware, (req, res) =>
     getMonthlyReportHandler(req, res, pool)
   );
 

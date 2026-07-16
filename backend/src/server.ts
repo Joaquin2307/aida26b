@@ -7,7 +7,11 @@ import path from 'path';
 import fs from 'fs';
 
 import * as auth from './auth';
-import { canRoleDo } from '../../shared/src/ssot/structure';
+import {
+  canRoleDo,
+  canRoleRunReport,
+  canRoleRunAnyReportForTable,
+} from '../../shared/src/ssot/structure';
 import type { TableAction } from '../../shared/src/types/types';
 
 import { registerApiRoutes } from './routes/register';
@@ -161,6 +165,35 @@ const requireTableAccess =
 
     return res.status(403).json({ error: 'Forbidden' });
   };
+
+// Authorizes the monthly report endpoint by report access (not table read), so
+// a contador can run reports without any table permission and an administrativo
+// with table read still cannot. A named report/view is checked against that
+// report; the ad-hoc explicit-params path requires access to some report of the
+// table in the path.
+const requireReportAccess: RequestHandler = async (req, res, next) => {
+  const role = (req as AuthedRequest).user?.role;
+  const reportKey = typeof req.query.report === 'string' ? req.query.report : '';
+
+  const allowed = role
+    ? reportKey
+      ? canRoleRunReport(role, reportKey)
+      : canRoleRunAnyReportForTable(role, req.params.tableName)
+    : false;
+
+  if (allowed) {
+    return next();
+  }
+
+  await audit(req, 'permission_denied', 'denied', {
+    path: req.path,
+    method: req.method,
+    report: reportKey || null,
+    table: req.params.tableName,
+  });
+
+  return res.status(403).json({ error: 'Forbidden' });
+};
 
 // Auth routes
 app.post('/api/auth/login', async (req, res) => {
@@ -419,11 +452,13 @@ app.post(
 // Generic API surface (CRUD + with-items + monthly reports), wired through the
 // shared registerApiRoutes with auth + per-action RBAC. The with-items route
 // checks the parent's create access here and the child's inside the handler.
-registerApiRoutes(app, pool, (action) => [
-  requireAuth,
-  requirePasswordReady,
-  requireTableAccess(action),
-]);
+// Reports are authorized by report access, not table read.
+registerApiRoutes(
+  app,
+  pool,
+  (action) => [requireAuth, requirePasswordReady, requireTableAccess(action)],
+  [requireAuth, requirePasswordReady, requireReportAccess]
+);
 
 // Resolve frontend static files directory
 let frontendDistPath = path.join(__dirname, '../../frontend/dist');
