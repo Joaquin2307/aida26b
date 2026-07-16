@@ -1,7 +1,6 @@
 import express from 'express';
 import { Pool } from 'pg';
 
-import { structure } from '../../../shared/src/ssot/structure';
 import type { TableKey, Response } from '../../../shared/src/types/types';
 import { getPkFields } from '../../../shared/src/utils/utils';
 
@@ -13,6 +12,7 @@ import {
 
 import {
   getEntityName,
+  isKnownTable,
   tryQuery,
   columnNamesEqualsNumber,
 } from '../helpers';
@@ -77,8 +77,4 @@ export async function deleteHandler(
     'deleted',
     200
   );
-}
-
-function isKnownTable(tableName: string): tableName is TableKey {
-  return Object.prototype.hasOwnProperty.call(structure.tables, tableName);
 }

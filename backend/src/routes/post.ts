@@ -1,11 +1,11 @@
 import express from 'express';
 import { Pool } from 'pg';
 
-import { structure } from '../../../shared/src/ssot/structure';
 import type { TableKey } from '../../../shared/src/types/types';
 
 import {
   getEntityName,
+  isKnownTable,
   getNotDerivableFields,
   tryQuery,
   formatTableColumnsForQuery,
@@ -70,8 +70,4 @@ export async function postHandler(
     'created',
     201
   );
-}
-
-function isKnownTable(tableName: string): tableName is TableKey {
-  return Object.prototype.hasOwnProperty.call(structure.tables, tableName);
 }

@@ -4,6 +4,8 @@ import { Pool } from "pg";
 
 import {
   getEntityName,
+  getTableAlias,
+  isKnownTable,
   getDerivableFields,
   getReferencedRelations,
   tryQuery,
@@ -264,10 +266,6 @@ export function buildListQuery(
 }
 
 /** Helpers */
-function isKnownTable(tableName: string): tableName is TableKey {
-  return Object.prototype.hasOwnProperty.call(structure.tables, tableName);
-}
-
 function isListRequest(query: express.Request["query"]): boolean {
   const queryKeys = Object.keys(query);
 
@@ -289,17 +287,17 @@ function getJoinsStatements(
   referencedRelations: TableKey[]
 ): string {
   let joinsStatement = "";
-  const entityName = getEntityName(queryTable);
+  const selfAlias = getTableAlias(queryTable);
 
   referencedRelations.forEach((tableName) => {
-    const referencedEntityName = getEntityName(tableName);
+    const referencedAlias = getTableAlias(tableName);
 
-    joinsStatement += ` JOIN ${tableName} ${referencedEntityName} ON `;
+    joinsStatement += ` JOIN ${tableName} ${referencedAlias} ON `;
 
     const pkFields = getPkFields(tableName);
 
     const pkFieldsEqualityStatements = pkFields.map(
-      (pk) => `${entityName}.${pk} = ${referencedEntityName}.${pk}`
+      (pk) => `${selfAlias}.${pk} = ${referencedAlias}.${pk}`
     );
 
     joinsStatement += pkFieldsEqualityStatements.join(" AND ");
@@ -308,23 +306,30 @@ function getJoinsStatements(
   return joinsStatement;
 }
 
+// Resolves a derivable column's SQL, replacing the SSOT placeholders with stable
+// table-name aliases: {{self}} is the queried table, {{origin}} is the declared
+// origin table. Aliases come from the table name, never from a UI label.
+function resolveDerivableExpression(
+  tableName: TableKey,
+  column: ColumnDef
+): string {
+  const originTable = column.derivable?.originTable as TableKey;
+
+  return (column.derivable?.sqlGenerationStatement ?? "")
+    .replace(/\{\{\s*self\s*\}\}/g, getTableAlias(tableName))
+    .replace(/\{\{\s*origin\s*\}\}/g, getTableAlias(originTable));
+}
+
 function getSelectStatement(tableName: TableKey): string {
-  const entityName = getEntityName(tableName);
-  const selectFields = [`${entityName}.*`];
+  const selectFields = [`${getTableAlias(tableName)}.*`];
 
   const derivedFields: [string, ColumnDef][] = getDerivableFields(tableName);
 
   selectFields.push(
-    ...derivedFields.map(([fieldName, column]) => {
-      const originTable = column.derivable?.originTable as TableKey;
-
-      const expression = column.derivable?.sqlGenerationStatement.replace(
-        /entityName/g,
-        getEntityName(originTable)
-      );
-
-      return `${expression} AS ${fieldName}`;
-    })
+    ...derivedFields.map(
+      ([fieldName, column]) =>
+        `${resolveDerivableExpression(tableName, column)} AS ${fieldName}`
+    )
   );
 
   return `SELECT ${selectFields.join(", ")}`;
@@ -336,7 +341,7 @@ export function getBaseSelectQuery(tableName: TableKey): string {
   if (referencedRelations.length > 0) {
     return `
       ${getSelectStatement(tableName)}
-      FROM ${tableName} ${getEntityName(tableName)}
+      FROM ${tableName} ${getTableAlias(tableName)}
       ${getJoinsStatements(tableName, referencedRelations)}
     `;
   }

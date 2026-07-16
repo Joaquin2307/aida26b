@@ -1,4 +1,6 @@
 import { API_BASE } from './api_tests';
+import { getPkFields } from '../../shared/src/utils/utils';
+import type { TableKey } from '../../shared/src/types/types';
 
 /* Generic CRUD helpers (everything is driven by the SSOT, so one set works for every table). */
 
@@ -8,15 +10,9 @@ function queryString(pairs: PkPairs): string {
   return new URLSearchParams(pairs).toString();
 }
 
-const PK_FIELDS: Record<string, string[]> = {
-  proveedores: ['cuit'],
-  articulos: ['codigo'],
-  comprobantes: ['numero'],
-  detalle_comprobante: ['numero', 'codigo'],
-};
-
 export function pkOf(tableName: string, obj: Record<string, unknown>): PkPairs {
-  return PK_FIELDS[tableName].map((field) => [field, String(obj[field])]);
+  // Primary key fields come from the SSOT, so tests never re-declare them.
+  return getPkFields(tableName as TableKey).map((field) => [field, String(obj[field])]);
 }
 
 export async function fetchFullTable(tableName: string) {

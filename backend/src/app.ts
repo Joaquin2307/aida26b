@@ -1,31 +1,21 @@
 import { Pool } from 'pg';
 import cors from 'cors';
-import path from 'path';
 import express from 'express';
-import { getHandler } from './routes/get';
-import { putHandler } from './routes/put';
-import { postHandler } from './routes/post';
-import { deleteHandler } from './routes/delete';
 
+import { registerApiRoutes } from './routes/register';
+
+// Test-only app factory: the same generic API surface as the real server
+// (server.ts), wired through the shared registerApiRoutes so the two never
+// drift, but WITHOUT auth/RBAC middleware and WITHOUT static file serving. It
+// lets the DB integration tests exercise the CRUD/report/with-items endpoints
+// directly. Do not use as a production entrypoint — server.ts is the real one.
 export function createAppGivenPool(pool: Pool) {
   const app = express();
 
-  // Middleware
   app.use(cors());
   app.use(express.json());
 
-  app.get('/api/:tableName', async (req, res) => getHandler(req, res, pool));
-  app.post('/api/:tableName', async (req, res) => postHandler(req, res, pool));
-  app.put('/api/:tableName', async (req, res) => putHandler(req, res, pool));
-  app.delete('/api/:tableName', async (req, res) => deleteHandler(req, res, pool));
-
-  // Serve static files from frontend dist
-  app.use(express.static(path.join(__dirname, '../../frontend/dist')));
-
-  // Catch-all handler: send back index.html for any non-API routes
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
-  });
+  registerApiRoutes(app, pool);
 
   return app;
 }

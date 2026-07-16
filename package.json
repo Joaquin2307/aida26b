@@ -1,7 +1,7 @@
 {
-  "name": "faculty-management",
+  "name": "comprobantes-management",
   "version": "1.0.0",
-  "description": "Faculty Student Management System",
+  "description": "Comprobantes Management System",
   "scripts": {
     "install:all": "npm --prefix frontend install && npm --prefix backend install",
     "build": "npm --prefix frontend run build && npm --prefix backend run build",

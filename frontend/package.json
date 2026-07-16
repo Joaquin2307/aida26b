@@ -1,7 +1,7 @@
 {
-  "name": "faculty-management-frontend",
+  "name": "comprobantes-management-frontend",
   "version": "1.0.0",
-  "description": "Frontend for Faculty Student Management System",
+  "description": "Frontend for the Comprobantes Management System",
   "type": "module",
   "scripts": {
     "build": "webpack --config webpack.prod.js",

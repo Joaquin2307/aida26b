@@ -2,8 +2,9 @@ import express from 'express';
 import { Pool } from 'pg';
 
 import { structure } from '../../../shared/src/ssot/structure';
-import type { TableKey } from '../../../shared/src/types/types';
+import type { TableKey, ReportDef } from '../../../shared/src/types/types';
 
+import { isKnownTable } from '../helpers';
 import { getBaseSelectQuery, getListFilterConfig, buildFilterConditions } from './get';
 import {
   sendErrorMessage,
@@ -11,18 +12,18 @@ import {
   sendNotFoundMessage,
 } from '../status_messages';
 
-function isKnownTable(tableName: string): tableName is TableKey {
-  return Object.prototype.hasOwnProperty.call(structure.tables, tableName);
-}
+const reports = structure.reports as Record<string, ReportDef>;
 
 // GET /api/reports/:tableName/monthly
-//   ?year=YYYY&month=MM&groupBy=col[,col]&dateField=col[&measure=col]
+//   ?report=<key>&view=<key>            (SSOT-driven: preferred)
+//   ?year=YYYY&month=MM&groupBy=col[,col]&dateField=col[&measure=col]  (explicit)
 //
 // Generic monthly aggregation over any SSOT table: keep the rows whose
 // `dateField` falls in the requested month, group them by the `groupBy`
 // column(s), and return the row count plus (optionally) the sum of a numeric
-// `measure`. It is driven entirely by the SSOT column metadata, so it works for
-// any table (e.g. the monthly providers report is comprobantes grouped by cuit).
+// `measure`. When `report`/`view` are given, the grouping/date/measure are
+// resolved from the declared ReportDef so the SSOT — not the client — is the
+// source of truth; the column allow-list is still enforced either way.
 export async function getMonthlyReportHandler(
   req: express.Request,
   res: express.Response,
@@ -52,13 +53,40 @@ export async function getMonthlyReportHandler(
   const filterConfig = getListFilterConfig(tableName);
   const validColumns = Object.keys(filterConfig);
 
-  const groupBy = String(req.query.groupBy ?? '')
-    .split(',')
-    .map((column) => column.trim())
-    .filter(Boolean);
+  // Prefer the declared report/view (the SSOT is the source of truth); fall back
+  // to explicit groupBy/dateField/measure query params for ad-hoc aggregation.
+  const reportKey = String(req.query.report ?? '');
+  let groupBy: string[];
+  let dateField: string;
+  let measure: string;
 
-  const dateField = String(req.query.dateField ?? '');
-  const measure = String(req.query.measure ?? '');
+  if (reportKey) {
+    const reportDef = reports[reportKey];
+
+    if (!reportDef || reportDef.table !== tableName) {
+      return sendInvalidInstanceMessage(res, 'report must be a report declared for this table');
+    }
+
+    const viewKey = String(
+      req.query.view ?? reportDef.defaultView ?? Object.keys(reportDef.views)[0]
+    );
+    const view = reportDef.views[viewKey];
+
+    if (!view) {
+      return sendInvalidInstanceMessage(res, 'view must be a view declared by the report');
+    }
+
+    groupBy = view.groupBy;
+    dateField = reportDef.dateField;
+    measure = reportDef.measure ?? '';
+  } else {
+    groupBy = String(req.query.groupBy ?? '')
+      .split(',')
+      .map((column) => column.trim())
+      .filter(Boolean);
+    dateField = String(req.query.dateField ?? '');
+    measure = String(req.query.measure ?? '');
+  }
 
   if (groupBy.length === 0 || !groupBy.every((column) => validColumns.includes(column))) {
     return sendInvalidInstanceMessage(res, 'groupBy must be one or more valid columns');

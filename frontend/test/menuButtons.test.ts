@@ -17,9 +17,6 @@ describe('Menu Pickers (Theme & Language)', () => {
       <div id="table-nav"></div>
       <div id="view-title"></div>
       <button id="add-record-btn"></button>
-      <div id="admin-actions"></div>
-      <button id="add-teacher-btn"></button>
-      <button id="add-admin-btn"></button>
       <div id="record-form"></div>
       <table id="records-table">
         <thead></thead>
@@ -138,7 +135,7 @@ describe('Menu Pickers (Theme & Language)', () => {
 
       const newText = (document.getElementById('proveedores-btn') as HTMLButtonElement)?.textContent || '';
 
-      // El texto debe cambiar si inicialmente estaba en español
+      // The text must change if it started out in Spanish.
       if (initialText === 'Proveedores') {
         expect(newText).toBe('Providers');
       }
