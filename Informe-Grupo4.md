@@ -35,7 +35,7 @@ Es genérico —lo maneja la relación `detailOf` del SSOT—, así que sirve pa
 
 ## Features que agregamos
 
-La idea general es que solo agregamos SQL donde el motor genérico no llega: todo lo demás lo sigue generando el SSOT. Las 4 migraciones nuevas son porque el esquema físico del dominio es lo único que no se puede derivar
+La idea general es que solo agregamos SQL donde el motor genérico no llega: todo lo demás lo sigue generando el SSOT. Las migraciones nuevas son porque el esquema físico del dominio es lo único que no se puede derivar
 del ssot y hay que crearlo; cada una lleva un comentario de una línea con su motivo.
 
 ### 1. Creación atómica padre + detalle 
@@ -53,8 +53,26 @@ Acá escribimos a mano una query que agrupa y suma, porque el CRUD sabe listar f
 Ver: sqlGenerationStatement en structure.ts. Valores calculados por SQL que se declaran en el ssot, como el total del comprobante (SUM(cantidad * precio_unitario)) o el subtotal de cada línea. Lo resolvimos así para que el total no se pueda desincronizar de las líneas: no es un campo que se ingresa, es una fórmula.
 El subquery del total no es SQL suelto, vive declarado como fórmula de la columna en el ssot. Y como el total dejó de guardarse, la migración 'comprobante_total_derived' hace el DROP COLUMN total.
 
-### 4. RBAC de tres niveles
-Ver: access en structure.ts (canRoleDo) y access por reporte (canRoleRunReport). Cada tabla declara en el ssot quién puede hacer read/create/update/delete, y cada reporte declara quién puede correrlo; esas mismas declaraciones las usan el backend y el frontend.
-Hay tres niveles: admin (puede todo), administrativo (ve y agrega proveedores/artículos/comprobantes, sin editar/borrar y sin reportes) y contador (solo genera reportes, sin acceso a las tablas). El acceso a reportes se declara aparte del read de tabla, para poder darle reportes al contador sin darle las tablas y datos al administrativo sin darle reportes. Lo pusimos en el ssot para tener una única fuente de permisos, sin reglas duplicadas entre front y back. Acá no tocamos SQL: se resuelve en la capa de aplicación a partir del ssot.
+### 4. RBAC con tres niveles de privilegio
+Ver: access en structure.ts (canRoleDo) y access por reporte (canRoleRunReport). Cada tabla declara en el ssot quién puede hacer read/create/update/delete, y cada reporte declara quién puede correrlo; esas mismas declaraciones las usan el backend (middlewares) y el frontend (para mostrar/ocultar tabs, botones y formularios), así que hay una única fuente de permisos sin reglas duplicadas.
 
-El SQL del CRUD base (post/put/delete y el SELECT/JOIN de get) no se modificó: lo sigue generando el motor a partir del ssot.
+Definimos **tres niveles de privilegio** pensados en los roles reales de una gestión de comprobantes:
+
+- **admin**: puede todo — CRUD completo de las cuatro tablas y todos los reportes.
+- **administrativo**: es quien carga la operatoria diaria. Ve y **agrega** proveedores, artículos y comprobantes (read + create), pero **no** edita ni borra (eso queda para el admin) y **no** accede a los reportes.
+- **contador**: **solo** genera reportes. No tiene acceso a ninguna tabla: no ve las grillas ni puede leer/modificar datos, solo la vista de reportes.
+
+La decisión de diseño clave fue **desacoplar el acceso a reportes del `read` de las tablas**. Con el modelo original "ver reportes = poder leer la tabla" no se podían expresar estos roles: el administrativo necesita leer comprobantes para cargarlos pero no debe ver reportes, y el contador debe ver reportes sin entrar a las tablas. Por eso agregamos un `access` propio a nivel de reporte en el ssot (`canRoleRunReport`), separado del access de tabla. Como refuerzo, el endpoint de reporte "ad-hoc" (agrupación libre por parámetros) quedó reservado al admin, para que un rol de solo-reportes no pueda reconstruir filas agrupando por la clave primaria.
+
+Acá no tocamos SQL: todo el RBAC se resuelve en la capa de aplicación a partir del ssot. La migración `roles_administrativo_contador` solo ajusta el CHECK de `auth.users` y convierte los usuarios existentes.
+
+### 5. Validación compartida front + back
+Ver: shared/validation/validate.ts. Las reglas de cada columna (tipo, required, regex, min/max, fecha) se declaran una sola vez en el ssot y las usan los dos lados: el backend valida siempre antes de tocar la db, y el frontend da el mismo feedback en vivo con la misma función. Así una regla nueva no se puede desincronizar entre front y back.
+
+### 6. Migraciones forward-only e inmutables
+Ver: migrate.ts. El schema se versiona con migraciones nombradas por timestamp que corren en orden. Una vez aplicada, una migración es inmutable: guardamos su checksum y el runner aborta si alguien la edita. Para revertir se escribe una migración nueva, nunca se toca la vieja; agregar/cambiar tablas o columnas es siempre una migración más.
+
+### 7. Testing
+Tres niveles: unit (vitest) para la lógica de auth/RBAC y los pickers del menú; integración contra una db real (test:db) que ejercita el CRUD genérico de las cuatro tablas, incluidas las columnas derivadas; y e2e con Playwright para paginación y filtros desde el navegador.
+
+El SQL del CRUD base (post/put/delete y el SELECT/JOIN de get) no se modificó: lo sigue generando el motor a partir del ssot. La UI además es bilingüe (ES/EN) y tiene tema claro/oscuro, todo declarado en el ssot.
